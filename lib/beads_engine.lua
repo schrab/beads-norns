@@ -108,7 +108,9 @@ function beadse.add_params()
     action = function(x) engine.drywet(x) end,
   }
   params:add {
-    type = "control", id = "reverb", name = "reverb",
+    -- id must not be "reverb": something (a mod hook) adds its own
+    -- "reverb" param after script init and paramset clobbers on collision
+    type = "control", id = "rvb", name = "reverb",
     controlspec = controlspec.new(0, 1, "lin", 0.005, 0, ""),
     action = function(x) engine.reverb(x) end,
   }

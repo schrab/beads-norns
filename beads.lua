@@ -149,7 +149,7 @@ end
 
 -- bipolar bar for the amounts: center = 0, left/right = -1/+1
 local function bar_bi(x, y, w, v, level)
-  bar(x, y, w, 0.5, 1)
+  bar(x, y, w, 0, 1)   -- empty frame
   local c = x + w / 2
   screen.level(level or 10)
   if v >= 0 then
@@ -227,7 +227,7 @@ function enc(n, d)
     return
   end
   local e2 = { "time", "density", "time_amt", "feedback", "media" }
-  local e3 = { "pitch", "size", "size_amt", "reverb", "mono" }
+  local e3 = { "pitch", "size", "size_amt", "rvb", "mono" }
   local e4 = { "pitch_amt", "shape", "shape_amt", "drywet", "gain" }
   local t = n == 2 and e2[page] or (n == 3 and e3[page] or e4[page])
   params:delta(t, d)
@@ -330,7 +330,7 @@ function redraw()
       screen.level(4)
       screen.move(0, y)
       screen.text(r[1])
-      bar_bi(64, y - 5, 60, (r[2] + 1) / 2, 10)
+      bar_bi(64, y - 5, 60, r[2], 10)
     end
     screen.level(4)
     screen.move(0, 62)
@@ -338,7 +338,7 @@ function redraw()
   elseif page == 4 then
     local rows = {
       { "E2 feedback", params:get("feedback") },
-      { "E3 reverb", params:get("reverb") },
+      { "E3 reverb", params:get("rvb") },
       { "E4 dry/wet", params:get("drywet") },
     }
     for i, r in ipairs(rows) do
