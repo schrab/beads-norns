@@ -50,10 +50,10 @@ local spawn_acc = 0
 local pending_pulses = 0
 -- tape splice point (buffer seam): a material point on the virtual tape,
 -- synced from the engine's write-phase poll and dead-reckoned between
--- polls at one loop per buf_s; freezes with the tape
+-- polls at one loop per buf_s; freezes with the tape. The reels are
+-- phase-locked to it (same variable drives both).
 local seam_pos = 0
 local seam_have = false
-local reel_angle = 0
 
 -- MIDI note pitch (PITCH CV jack equivalent)
 local midi_stack = {}   -- held notes, most recent last
@@ -503,8 +503,8 @@ function init()
       local buf_s = buf_seconds()
       local frozen = params:get("freeze") == 1
       if not frozen then
-        -- tape runs: reels turn one rev per loop, splice advances
-        reel_angle = (reel_angle + 2 * math.pi / buf_s * dt) % (2 * math.pi)
+        -- tape runs: the splice advances one loop per buf_s (the reels
+        -- are locked to it in redraw, so they advance with it)
         if seam_have then
           seam_pos = (seam_pos + dt / buf_s) % 1
         end
@@ -668,10 +668,11 @@ function redraw()
     local dur = grain_dur_s(params:get("size"))
     local now = os.clock()
 
-    -- transport reels: a 6-notch hub in each end cap, one revolution per
-    -- loop pass (2pi / buf_s), counterclockwise - the direction tape
-    -- recedes from the static head; frozen tape = stopped reels
-    local tape_rot = reel_angle
+    -- transport reels: a 6-notch hub in each end cap, PHASE-LOCKED to the
+    -- tape splice - one rotation per splice revolution, notch pointing up
+    -- when the splice passes the head, counterclockwise (tape direction);
+    -- frozen tape = stopped reels (they share the splice's phase)
+    local tape_rot = seam_have and (2 * math.pi * seam_pos) or 0
     local function draw_reel(cx0, cy0)
       local rr = 7
       screen.level(4)
@@ -683,7 +684,7 @@ function redraw()
       screen.stroke()
       screen.level(9)
       for k = 0, 5 do
-        local a = k * math.pi / 3 - tape_rot
+        local a = k * math.pi / 3 - math.pi / 2 - tape_rot
         screen.move(cx0 + (rr - 2.5) * math.cos(a), cy0 + (rr - 2.5) * math.sin(a))
         screen.line(cx0 + (rr - 0.5) * math.cos(a), cy0 + (rr - 0.5) * math.sin(a))
       end
