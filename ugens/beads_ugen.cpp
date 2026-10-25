@@ -27,7 +27,7 @@ static InterfaceTable *ft;
 
 // control-rate args (indices 0..kNumKrArgs-1); audio inputs follow at
 // kNumKrArgs (L) and kNumKrArgs+1 (R)
-static const int kNumKrArgs = 18;
+static const int kNumKrArgs = 20;
 static const int kMaxChunk = 128;
 
 // buffer duration in stereo-line items per media (bytes / item bytes);
@@ -71,6 +71,14 @@ struct BeadsUGen : public Unit {
   int       media_;
   int       transition_;          // 250 ms mute after media/mono change
 
+  // clock sync: when sync is on, a seed pulse is emitted whenever the
+  // clockCount arg changes (counter pattern - safe against dropped OSC
+  // messages). Pulses feed the DSP's external-clock paths: RenderDivider
+  // in granular mode (density = division/probability) and the
+  // synchronized DelayClock in delay mode (tap interval = beat).
+  uint32_t  clock_count_prev_;
+  bool      clock_pulse_;
+
   // mirror of the granular<->delay hysteresis, for the UI only
   float     delay_mode_transition_;
   bool      delay_mode_;
@@ -79,6 +87,7 @@ struct BeadsUGen : public Unit {
   beads::FloatFrame in_[kMaxChunk];
   beads::FloatFrame out_[kMaxChunk];
   bool       freeze_buf_[kMaxChunk];
+  stmlib::GateFlags seed_buf_[kMaxChunk];   // clock-sync pulses only
 };
 
 static void BeadsUGen_Ctor(BeadsUGen *unit);
@@ -130,6 +139,8 @@ static void BeadsUGen_Ctor(BeadsUGen *unit) {
   unit->mono_ = false;
   unit->media_ = beads::Processor::MEDIA_DIGITAL;   // Processor::Init configured this
   unit->transition_ = 0;
+  unit->clock_count_prev_ = 0;
+  unit->clock_pulse_ = false;
   unit->delay_mode_transition_ = 0.0f;
   unit->delay_mode_ = false;
 
@@ -188,6 +199,12 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
   int media_now = (int)IN0(16);
   CONSTRAIN(media_now, 0, 3);
   const bool mono_now = IN0(17) > 0.5f;
+  const bool sync_now = IN0(18) > 0.5f;
+  const uint32_t clock_count = (uint32_t)IN0(19);
+  if (clock_count != unit->clock_count_prev_) {
+    unit->clock_count_prev_ = clock_count;
+    unit->clock_pulse_ = true;    // consumed by the next Process chunk
+  }
 
   // media/mono changes are ignored while frozen (firmware behavior)
   if (!unit->freeze_ && !freeze_now &&
@@ -256,14 +273,26 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
       unit->freeze_buf_[i] = freeze_now;
     }
 
-    // NOTE on the seed input: norns has no SEED jack, so we always pass
-    // NULL - exactly like the firmware with an unpatched jack. The button
-    // state carries everything: ON/OFF gates grains (unlatched), LOCKED
-    // free-runs at density, and button taps reach the delay clock via the
-    // seed-button state transition (DelayController derives taps from
-    // OFF->ON, it does not need the gate array). Passing a gate array in
-    // LOCKED mode would engage RenderDivider - treating K3 as an external
-    // clock - which made latched mode behave like gating.
+    // Seed input: NULL when unsynchronized (exactly like the firmware with
+    // an unpatched jack - the button state carries gating and tap tempo).
+    // When clock sync is on, emit a 1-sample clock pulse on the counter
+    // change: LOCKED + external input engages RenderDivider (granular) /
+    // the synchronized DelayClock (delay mode), matching the hardware's
+    // clocked-SEED behavior.
+    const stmlib::GateFlags* seed_input = nullptr;
+    if (sync_now && latch_now) {
+      stmlib::GateFlags* seed_flags = unit->seed_buf_;
+      const bool pulse = unit->clock_pulse_;
+      for (int i = 0; i < n; ++i) {
+        seed_flags[i] = (pulse && i == 0)
+            ? (stmlib::GATE_FLAG_RISING | stmlib::GATE_FLAG_HIGH)
+            : stmlib::GATE_FLAG_LOW;
+      }
+      unit->clock_pulse_ = false;
+      seed_input = seed_flags;
+    } else {
+      unit->clock_pulse_ = false;
+    }
 
     if (unit->transition_ > 0) {
       for (int i = 0; i < n; ++i) {
@@ -279,7 +308,7 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
 
       unit->processor->Process(
           seed_state,
-          nullptr,
+          seed_input,
           unit->freeze_buf_,
           d, p, m,
           unit->in_,

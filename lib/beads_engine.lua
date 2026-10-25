@@ -10,10 +10,10 @@ local beadse = {}
 local MEDIA = { "scorched tape", "sunny tape", "cold digital", "digital" }
 
 local cs = {
-  unit = controlspec.new(0, 1, "lin", 0.001, 0.5, ""),
-  amt = controlspec.new(-1, 1, "lin", 0.01, 0, ""),
-  pitch = controlspec.new(-24, 24, "lin", 0.01, 0, "st"),
-  gain = controlspec.new(0.25, 4, "lin", 0.01, 1, ""),
+  unit = controlspec.new(0, 1, "lin", 0.005, 0.5, ""),
+  amt = controlspec.new(-1, 1, "lin", 0.02, 0, ""),
+  pitch = controlspec.new(-24, 24, "lin", 0.05, 0, "st"),
+  gain = controlspec.new(0.25, 4, "lin", 0.02, 1, ""),
 }
 
 local function ri(x) return math.floor(x + 0.5) end
@@ -58,13 +58,13 @@ function beadse.add_params()
 
   params:add {
     type = "control", id = "density", name = "density",
-    controlspec = controlspec.new(0, 1, "lin", 0.001, 0.3, ""),
+    controlspec = controlspec.new(0, 1, "lin", 0.005, 0.3, ""),
     formatter = density_format,
     action = function(x) engine.density(x) end,
   }
   params:add {
     type = "control", id = "size", name = "size",
-    controlspec = controlspec.new(0, 1, "lin", 0.001, 0.3, ""),
+    controlspec = controlspec.new(0, 1, "lin", 0.005, 0.3, ""),
     formatter = function(param)
       local s = param:get()
       if s > 0.99 then return "delay mode" end
@@ -94,12 +94,12 @@ function beadse.add_params()
 
   params:add {
     type = "control", id = "feedback", name = "feedback",
-    controlspec = controlspec.new(0, 1, "lin", 0.001, 0, ""),
+    controlspec = controlspec.new(0, 1, "lin", 0.005, 0, ""),
     action = function(x) engine.feedback(x) end,
   }
   params:add {
     type = "control", id = "drywet", name = "dry/wet",
-    controlspec = controlspec.new(0, 1, "lin", 0.001, 1, ""),
+    controlspec = controlspec.new(0, 1, "lin", 0.005, 1, ""),
     formatter = function(param)
       local v = param:get()
       return v < 0.025 and "dry" or (v > 0.975 and "wet" or
@@ -109,7 +109,7 @@ function beadse.add_params()
   }
   params:add {
     type = "control", id = "reverb", name = "reverb",
-    controlspec = controlspec.new(0, 1, "lin", 0.001, 0, ""),
+    controlspec = controlspec.new(0, 1, "lin", 0.005, 0, ""),
     action = function(x) engine.reverb(x) end,
   }
   params:add {
@@ -139,7 +139,18 @@ function beadse.add_params()
   params:add {
     type = "binary", id = "latch", name = "seed latch",
     behavior = "toggle", default = 1,
-    action = function(x) engine.latch(x) end,
+    action = function(x)
+      engine.latch(x)
+      if beadse.on_latch then beadse.on_latch(x) end
+    end,
+  }
+  params:add {
+    type = "option", id = "sync", name = "clock sync",
+    options = { "off", "norns bpm" }, default = 1,
+    action = function(x)
+      engine.sync(x - 1)
+      if beadse.on_sync then beadse.on_sync(x) end
+    end,
   }
 
 end

@@ -11,7 +11,11 @@
 --   PLAY  E2 time   (alt: time amt)    E3 pitch (alt: pitch amt)  E4 dry/wet
 --   GRAIN E2 density (alt: size amt)   E3 size  (alt: shape amt)  E4 shape
 --   MIX   E2 feedback   E3 reverb   E4 input gain
---   SETUP E2 media   E3 channels  E4 seed latch
+--   SETUP E2 media   E3 channels  E4 clock sync (norns bpm -> seed clock)
+--
+-- clock sync (SETUP E4, needs latch on): delay mode tempo = norns bpm x
+-- DENSITY subdivision; granular mode = clocked divider (hardware SEED-jack
+-- clocking)
 --
 -- all params (incl. freeze/latch) live in the PARAMS menu; MIDI mapping
 -- works there like any norns script.
@@ -30,6 +34,30 @@ local dirty = true
 local redrawer
 
 local W, H = 128, 64
+
+-- clock sync: one engine seed pulse per norns-system beat engages the DSP's
+-- clocked paths (delay tempo = beat x density subdivision; granular divider)
+local sync_clock
+
+local function stop_sync()
+  if sync_clock then
+    clock.cancel(sync_clock)
+    sync_clock = nil
+  end
+end
+
+local function start_sync()
+  stop_sync()
+  -- clocked SEED behavior needs the latch on, like the hardware
+  if params:get("sync") == 2 and params:get("latch") == 1 then
+    sync_clock = clock.run(function()
+      while true do
+        clock.sleep(60 / clock.get_bpm())
+        engine.clock()
+      end
+    end)
+  end
+end
 
 
 -- grain envelope preview, mirroring beads' grain_envelope.h
@@ -82,27 +110,27 @@ local function density_string(d)
 end
 
 local function header()
-  screen.level(2)
+  -- one-line top bar: page name + state tags left, page dashes right
+  screen.level(alt and 15 or 4)
+  screen.move(0, 8)
+  screen.text(alt and pages[page] .. "+" or pages[page])
+  local tag = ""
+  if params:get("freeze") == 1 then tag = tag .. " FRZ" end
+  if STATS.dmode > 0.5 then tag = tag .. " TAPE" end
+  if seed_down then tag = tag .. " SEED" end
+  if params:get("latch") == 1 then tag = tag .. " LATCH" end
+  if params:get("sync") == 2 then tag = tag .. " CLK" end
+  if tag ~= "" then
+    screen.level(15)
+    screen.move(32, 8)
+    screen.text(tag)
+  end
   for i = 1, #pages do
     screen.move(112 + (i - 1) * 5, 8)
     screen.line_rel(3, 0)
     screen.line_width(3)
     screen.level(i == page and 15 or 2)
     screen.stroke()
-  end
-  screen.level(alt and 15 or 4)
-  screen.move(0, 8)
-  screen.text(alt and pages[page] .. " +" or pages[page])
-  -- state tags
-  local tag = ""
-  if params:get("freeze") == 1 then tag = tag .. "FRZ " end
-  if STATS.dmode > 0.5 then tag = tag .. "TAPE " end
-  if seed_down then tag = tag .. "SEED " end
-  if params:get("latch") == 1 then tag = tag .. "LATCH" end
-  if tag ~= "" then
-    screen.level(15)
-    screen.move(0, 18)
-    screen.text(tag)
   end
 end
 
@@ -151,6 +179,10 @@ function init()
   params:default()
   params:bang()
 
+  beadse.on_sync = function() start_sync() dirty = true end
+  beadse.on_latch = function() start_sync() dirty = true end
+  start_sync()
+
   redrawer = clock.run(function()
     while true do
       clock.sleep(1 / 15)
@@ -164,6 +196,7 @@ end
 
 function cleanup()
   if redrawer then clock.cancel(redrawer) end
+  stop_sync()
 end
 
 function enc(n, d)
@@ -174,11 +207,11 @@ function enc(n, d)
   end
   if n == 4 then
     -- Fates 4th knob: this page's third parameter
-    local p = { "drywet", "shape", "reverb" }
+    local p = { "drywet", "shape", "gain" }
     if page < 4 then
       params:delta(p[page], d)
     elseif d > 0 then
-      params:set("latch", params:get("latch") == 1 and 0 or 1)
+      params:set("sync", params:get("sync") == 2 and 1 or 2)
     end
     dirty = true
     return
@@ -245,16 +278,16 @@ function redraw()
     screen.fill()
     -- values
     screen.level(4)
-    screen.move(0, 30)
+    screen.move(0, 24)
     screen.text("time")
     screen.level(15)
-    screen.move(38, 30)
+    screen.move(38, 24)
     screen.text(string.format("%.2f", params:get("time")))
     screen.level(4)
-    screen.move(64, 30)
+    screen.move(64, 24)
     screen.text("pitch")
     screen.level(15)
-    screen.move(96, 30)
+    screen.move(96, 24)
     screen.text(string.format("%+.1f st", params:get("pitch")))
     -- footer
     screen.level(4)
@@ -263,18 +296,18 @@ function redraw()
       density_string(params:get("density")) ..
       "  dw " .. string.format("%.2f", params:get("drywet")))
   elseif page == 2 then
-    draw_envelope(4, 24, 119, 26, params:get("shape"))
+    draw_envelope(4, 26, 119, 26, params:get("shape"))
     screen.level(4)
-    screen.move(0, 30)
+    screen.move(0, 20)
     screen.text("dens")
     screen.level(15)
-    screen.move(30, 30)
+    screen.move(30, 20)
     screen.text(density_string(params:get("density")))
     screen.level(4)
-    screen.move(64, 30)
+    screen.move(64, 20)
     screen.text("size")
     screen.level(15)
-    screen.move(90, 30)
+    screen.move(90, 20)
     screen.text(string.format("%.2f", params:get("size")))
     screen.level(4)
     screen.move(0, 62)
@@ -291,7 +324,7 @@ function redraw()
       { "E4 in gain", (params:get("gain") - 0.25) / 3.75 },
     }
     for i, r in ipairs(rows) do
-      local y = 30 + (i - 1) * 12
+      local y = 26 + (i - 1) * 12
       screen.level(4)
       screen.move(0, y)
       screen.text(r[1])
@@ -301,27 +334,22 @@ function redraw()
     screen.move(0, 62)
     screen.text("K1 hold = alt layer on PLAY/GRAIN")
   else
-    local y = 28
-    screen.level(4)
-    screen.move(0, y)
-    screen.text("media")
-    screen.level(15)
-    screen.move(40, y)
-    screen.text(beadse.media_name(params:get("media")))
-    y = y + 12
-    screen.level(4)
-    screen.move(0, y)
-    screen.text("chans")
-    screen.level(15)
-    screen.move(40, y)
-    screen.text(params:get("mono") == 2 and "mono" or "stereo")
-    y = y + 12
-    screen.level(4)
-    screen.move(0, y)
-    screen.text("E4 latch")
-    screen.level(15)
-    screen.move(40, y)
-    screen.text(params:get("latch") == 1 and "on (free run)" or "off (gated)")
+    local rows = {
+      { "E2 media", beadse.media_name(params:get("media")) },
+      { "E3 chans", params:get("mono") == 2 and "mono" or "stereo" },
+      { "E4 sync", params:get("sync") == 2
+          and ("bpm " .. string.format("%d", math.floor(clock.get_bpm() + 0.5)))
+          or "off" },
+    }
+    for i, r in ipairs(rows) do
+      local y = 26 + (i - 1) * 12
+      screen.level(4)
+      screen.move(0, y)
+      screen.text(r[1])
+      screen.level(15)
+      screen.move(46, y)
+      screen.text(r[2])
+    end
     screen.level(4)
     screen.move(0, 62)
     screen.text("K2 freeze  K3 seed  K1+K3 latch")

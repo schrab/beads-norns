@@ -15,6 +15,7 @@ Engine_Beads : CroneEngine {
 
 	var synth;
 	var reserveBus, writeBus, dmodeBus;
+	var clockCount = 0;
 	var <reserve, <writePos, <delayMode;
 
 	alloc {
@@ -49,6 +50,8 @@ Engine_Beads : CroneEngine {
 				latch: \latch.kr(0),
 				media: \media.kr(3),
 				mono: \mono.kr(0),
+				sync: \sync.kr(0),
+				clockCount: \clockCount.kr(0),
 				inL: inL,
 				inR: inR
 			);
@@ -82,6 +85,12 @@ Engine_Beads : CroneEngine {
 		this.addCommand("latch", "f", { arg msg; synth.set(\latch, msg[1]) });
 		this.addCommand("media", "f", { arg msg; synth.set(\media, msg[1]) });
 		this.addCommand("mono", "f", { arg msg; synth.set(\mono, msg[1]) });
+		this.addCommand("sync", "f", { arg msg; synth.set(\sync, msg[1]) });
+		// one beat pulse from the script's clock loop (counter pattern)
+		this.addCommand("clock", "", {
+			clockCount = clockCount + 1;
+			synth.set(\clockCount, clockCount);
+		});
 
 		// getSynchronous can return nil while the server is busy; guard it
 		this.addPoll("beads_reserve", {
