@@ -37,7 +37,7 @@ local musicutil = require "musicutil"
 
 local STATS = { reserve = 1.0, dmode = 0.0 }
 
-local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "CLOCK", "SETUP", "MIDI" }
+local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "CLOCK", "SETUP", "MIDI", "SYNTH" }
 local page = 1
 local seed_down = false
 local dirty = true
@@ -126,15 +126,33 @@ end
 local W, H = 128, 64
 local MEDIA_SHORT = { "scorched", "sunny", "cold", "digital" }
 
--- clocked-mode subdivisions: in clocked delay/granular the DENSITY knob
--- walks the DSP's ratio table (1/16..1/1 below center, beat multiples
--- above). These targets address its slots directly; the MIX page exposes
--- them as a setting while sync is on (K1 tap to cycle).
+-- wavetable bank shown on the SYNTH page/PLAY view: the DSP quantizes
+-- FEEDBACK into 12 banks (Synth kNumBanks, hysteresis 0.048)
+local function bank_num()
+  return math.min(12, math.floor(params:get("feedback") * 12) + 1)
+end
+
+-- clocked delay-mode ratios, exactly the DSP's kRatio table
+-- (delay_controller.cc): 20 slots, density * 20 -> slot. CCW half =
+-- binary subdivisions, CW half = dividers (the hardware's ratio ring).
+local KDIV_LABELS = {
+  "1/16", "1/16", "1/8", "1/8", "1/4", "1/4", "1/2", "1/2",
+  "1/1", "1/1", "1/1", "1/1",
+  "1/2", "1/3", "1/4", "1/6", "1/8", "1/10", "1/12", "1/16",
+}
+
+local function delay_division(d)
+  local idx = math.min(19, math.max(0, math.floor(d * 20)))
+  return KDIV_LABELS[idx + 1]
+end
+
+-- clock sync subdivision macro: exact kRatio slot centers (one target
+-- per distinct division on the hardware's density ring)
 local SYNC_DIVS = {
-  { "1/16", 0.025 }, { "1/8", 0.125 }, { "1/4", 0.225 }, { "1/2", 0.35 },
-  { "1", 0.46 },
-  { "x2", 0.60 }, { "x3", 0.65 }, { "x4", 0.70 }, { "x6", 0.75 },
-  { "x8", 0.80 }, { "x12", 0.90 }, { "x16", 0.97 },
+  { "1/16", 0.05 }, { "1/8", 0.15 }, { "1/4", 0.25 }, { "1/2", 0.35 },
+  { "1/1", 0.475 },
+  { "1/2", 0.60 }, { "1/3", 0.65 }, { "1/4", 0.70 }, { "1/6", 0.75 },
+  { "1/8", 0.80 }, { "1/10", 0.85 }, { "1/12", 0.90 }, { "1/16", 0.95 },
 }
 
 local function sync_div_label()
@@ -281,6 +299,15 @@ local function grain_dur_s(s)
 end
 
 local function density_string(d)
+  if STATS.dmode > 0.5 then
+    -- delay mode: density is a subdivision of the tapped/clocked base
+    -- interval (clocked/tapped), or a plain interval shift when the
+    -- base is free-running (latched, nothing patched)
+    if (params:get("sync") == 2 and params:get("latch") == 1) or seed_down then
+      return delay_division(d)
+    end
+    return string.format("x%.2f", 2 ^ (-math.abs(d - 0.5) * 18))
+  end
   local r = density_rate(d)
   if r > 0 then
     return string.format("%s%d hz", d > 0.52 and "~" or "", math.floor(r + 0.5))
@@ -373,6 +400,11 @@ local function spawn_grain()
 end
 
 local function grain_sim_tick(dt, buf_s, frozen)
+  -- wavetable synth: no tape, no grains to simulate
+  if params:get("synth") == 2 then
+    grains = {}
+    return
+  end
   local rate = density_rate(params:get("density"))
   if STATS.dmode < 0.5 and rate > 0
       and (params:get("latch") == 1 or seed_down) then
@@ -433,6 +465,7 @@ local function header()
   if params:get("sync") == 2 then tag = tag .. " CLK" end
   local amt = params:get("pitch_amt")
   if amt ~= 0 then tag = tag .. " P" .. string.format("%+.1f", amt) end
+  if params:get("synth") == 2 then tag = tag .. " SYN" end
   if #midi_stack > 0 then tag = tag .. " NOTE" end
   if tag ~= "" then
     screen.level(15)
@@ -528,6 +561,12 @@ function init()
     seam_have = false
     dirty = true
   end
+  beadse.on_synth = function()
+    -- wavetable synth: no tape, no grains, splice meaningless
+    grains = {}
+    seam_have = false
+    dirty = true
+  end
   midi_connect_all()
   start_sync()
 
@@ -601,6 +640,18 @@ function enc(n, d)
     dirty = true
     return
   end
+  if page == 8 then
+    -- SYNTH: E2 wavetable synth mode, E3 bank (= FEEDBACK), E4 gate out
+    if n == 2 then
+      params:set("synth", d > 0 and 2 or 1)
+    elseif n == 3 then
+      params:delta("feedback", d)
+    elseif n == 4 then
+      params:set("gate", d > 0 and 2 or 1)
+    end
+    dirty = true
+    return
+  end
   local e2 = { "time", "density", "time_amt", "feedback", nil, "media" }
   local e3 = { "pitch", "size", "size_amt", "rvb", nil, "mono" }
   local e4 = { "pitch_amt", "shape", "shape_amt", "drywet", nil, "gain" }
@@ -655,6 +706,7 @@ function redraw()
     local L = bw - 2 * r
     local arc_len = math.pi * r
     local T = 2 * L + 2 * arc_len        -- loop perimeter
+    local synth_mode = params:get("synth") == 2
 
     -- point on the pill loop, t in [0,1): clockwise from top-left
     local function loop_point(t)
@@ -674,7 +726,10 @@ function redraw()
     end
 
     -- the loop: 1px outline (aa'd sampled path), shaded by overwrite
-    -- reserve (dims as the head approaches unrecorded tape)
+    -- reserve (dims as the head approaches unrecorded tape);
+    -- in wavetable synth mode there is no tape - the whole transport
+    -- view is replaced by the synth status
+    if not synth_mode then
     screen.aa(1)
     screen.line_width(1)
     screen.level(2 + math.floor(STATS.reserve * 4))
@@ -798,6 +853,15 @@ function redraw()
       screen.rect(util.round(sx), util.round(sy), 1, 1)
       screen.fill()
     end
+    else
+      -- wavetable synth: no tape to draw
+      screen.level(15)
+      screen.move(bx + bw / 2, cy - 2)
+      screen.text_center("SYNTH")
+      screen.level(9)
+      screen.move(bx + bw / 2, cy + 10)
+      screen.text_center("bank " .. bank_num() .. "/12")
+    end
 
     -- footer
     screen.level(4)
@@ -907,7 +971,7 @@ function redraw()
     screen.level(4)
     screen.move(0, 62)
     screen.text("K2 freeze  K3 seed")
-  else
+  elseif page == 7 then
     -- MIDI: notes stand in for the hardware PITCH CV jack
     local ref = params:get("midi_ref")
     local rows = {
@@ -934,6 +998,25 @@ function redraw()
     else
       screen.text("off - depth on PLAY")
     end
+  else
+    -- SYNTH: E2 wavetable synth mode, E3 bank (= FEEDBACK), E4 gate out
+    local rows = {
+      { "E2 synth", params:get("synth") == 2 and "on" or "off" },
+      { "E3 bank", bank_num() .. "/12" },
+      { "E4 gate out", params:get("gate") == 2 and "on" or "off" },
+    }
+    for i, r in ipairs(rows) do
+      local y = 22 + (i - 1) * 12
+      screen.level(4)
+      screen.move(0, y)
+      screen.text(r[1])
+      screen.level(15)
+      screen.move(68, y)
+      screen.text(r[2])
+    end
+    screen.level(4)
+    screen.move(0, 62)
+    screen.text("bank = FEEDBACK knob")
   end
 
   screen.update()

@@ -215,6 +215,26 @@ function beadse.add_params()
     end,
   }
 
+  params:add_separator("beads_synth", "SYNTH")
+
+  -- manual switch for the hardware's no-input wavetable synth mode
+  -- (norns can't sense unpatched jacks, so no auto-activation)
+  params:add {
+    type = "option", id = "synth", name = "synth mode",
+    options = { "off", "on" }, default = 1,
+    action = function(x)
+      engine.synth(x - 1)
+      if beadse.on_synth then beadse.on_synth(x) end
+    end,
+  }
+  -- output-gate mode: mono sum on the left output, grain trigger gate
+  -- pulses on the right (hardware settings flag, works in both modes)
+  params:add {
+    type = "option", id = "gate", name = "gate output",
+    options = { "off", "on" }, default = 1,
+    action = function(x) engine.gate(x - 1) end,
+  }
+
 end
 
 function beadse.media_name(i) return MEDIA[i] end

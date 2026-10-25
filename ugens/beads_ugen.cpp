@@ -29,12 +29,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdio.h>
 
 #include "SC_PlugIn.h"
 
 #include "stmlib/dsp/dsp.h"
 #include "stmlib/dsp/parameter_interpolator.h"
 #include "beads/dsp/processor.h"
+#include "beads/dsp/synth.h"
 #include "beads/resources.h"
 
 static InterfaceTable *ft;
@@ -43,8 +45,9 @@ using namespace std;
 
 // control-rate args (indices 0..kNumKrArgs-1): 0..19 panel/switch state,
 // 20 = MIDI pitch-cv active (hardware PITCH-CV jack patched), 21 = pitch cv
-// in semitones; audio inputs follow at kNumKrArgs (L) / kNumKrArgs+1 (R)
-static const int kNumKrArgs = 22;
+// in semitones, 22 = wavetable synth mode (manual switch), 23 = output
+// gate mode; audio inputs follow at kNumKrArgs (L) / kNumKrArgs+1 (R)
+static const int kNumKrArgs = 24;
 static const int kMaxChunk = 128;
 static const int kRingSize = 256;      // >= superblock max (192) + block (64)
 static const int kSuperDirty = 64;     // host samples / scorched superblock
@@ -213,6 +216,7 @@ class BeadsGainControl {
 struct BeadsUGen : public Unit {
 
   beads::Processor *processor;
+  beads::Synth synth_;
 
   // 3 banks x 256 KB, shared by all four media engines (beads.cc layout)
   uint8_t   *delay_buffer;
@@ -272,6 +276,7 @@ struct BeadsUGen : public Unit {
   // mirror of the granular<->delay hysteresis, for the UI only
   float     delay_mode_transition_;
   bool      delay_mode_;
+  bool      synth_mode_;
 };
 
 static void BeadsUGen_Ctor(BeadsUGen *unit);
@@ -323,6 +328,7 @@ static void BeadsUGen_Ctor(BeadsUGen *unit) {
 
   unit->processor = new beads::Processor();
   unit->processor->Init(unit->buffer_banks, unit->reverb_buffer);
+  unit->synth_.Init(unit->reverb_buffer);
 
   unit->gain_control_.Init(48000.0f,
                            BeadsGainControl::SOFT_CLIPPING_MODE_OFF, true);
@@ -349,6 +355,7 @@ static void BeadsUGen_Ctor(BeadsUGen *unit) {
   unit->clock_pulse_ = false;
   unit->delay_mode_transition_ = 0.0f;
   unit->delay_mode_ = false;
+  unit->synth_mode_ = false;
 
   unit->in_read_[0] = unit->in_read_[1] = 0;
   unit->in_len_[0] = unit->in_len_[1] = 0;
@@ -543,6 +550,8 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
   const bool pitch_cv_on = IN0(20) > 0.5f;
   float pitch_cv = IN0(21);
   CONSTRAIN(pitch_cv, -60.f, 60.f);
+  const bool synth_now = IN0(22) > 0.5f;
+  const bool gate_out = IN0(23) > 0.5f;
 
   const bool adapter_media =
       media_now == beads::Processor::MEDIA_DIRTY_TAPE ||
@@ -596,6 +605,26 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
   }
   unit->freeze_ = freeze_now;
 
+  // synth mode toggle = codec restart on the hardware (250 ms mute);
+  // rings/converters reset like a media change
+  if (synth_now != unit->synth_mode_) {
+    unit->synth_mode_ = synth_now;
+    unit->transition_ = int(0.25f * SAMPLERATE);
+    unit->in_read_[0] = unit->in_read_[1] = 0;
+    unit->in_len_[0] = unit->in_len_[1] = 0;
+    unit->out_read_[0] = unit->out_read_[1] = 0;
+    unit->out_len_[0] = unit->out_len_[1] = 0;
+    unit->pending_pulse_count_ = 0;
+    for (int c = 0; c < 2; ++c) {
+      unit->src_dirty_fwd_[c].Init();
+      unit->src_dirty_bwd_[c].Init();
+      unit->src_vintage_fwd_up_[c].Init();
+      unit->src_vintage_fwd_down_[c].Init();
+      unit->src_vintage_bwd_up_[c].Init();
+      unit->src_vintage_bwd_down_[c].Init();
+    }
+  }
+
   // ----- pack parameters (no CV on norns: the attenurandomizer only) -----
   beads::Parameters p;
   p.time.base = cur[POT_TIME];
@@ -631,7 +660,7 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
   m.feedback = cur[POT_FEEDBACK];
   m.dry_wet = cur[POT_DRYWET];
   m.reverb_amount = cur[POT_REVERB];
-  m.output_gate = false;
+  m.output_gate = gate_out;
 
   const beads::SeedButtonState seed_state = latch_now
       ? beads::SEED_BUTTON_STATE_LOCKED
@@ -648,6 +677,42 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
     }
     unit->transition_ -= inNumSamples;
     if (unit->transition_ < 0) unit->transition_ = 0;
+  } else if (unit->synth_mode_) {
+    // wavetable synth: native 48 kHz (Synth::Init rate), inputs unused;
+    // pitch CV folds into the base note inside Synth::Render (hardware
+    // behavior: CV = root note, attenurandomizer = pure randomization)
+    for (int i = 0; i < inNumSamples; ++i) {
+      unit->freeze_buf_[i] = freeze_now;
+    }
+    const stmlib::GateFlags* seed_input = nullptr;
+    if (sync_now && latch_now) {
+      const bool pulse = unit->clock_pulse_;
+      for (int i = 0; i < inNumSamples; ++i) {
+        unit->seed_buf_[i] = (pulse && i == 0)
+            ? (stmlib::GATE_FLAG_RISING | stmlib::GATE_FLAG_HIGH)
+            : stmlib::GATE_FLAG_LOW;
+      }
+      unit->clock_pulse_ = false;
+      seed_input = unit->seed_buf_;
+    } else {
+      unit->clock_pulse_ = false;
+    }
+    unit->synth_.Render(
+        seed_state,
+        seed_input,
+        unit->freeze_buf_,
+        static_cast<beads::Synth::Resolution>(unit->media_),
+        d, p, m,
+        unit->out_,
+        inNumSamples);
+    for (int i = 0; i < inNumSamples; ++i) {
+      float l = unit->out_[i].l;
+      float r = unit->out_[i].r;
+      CONSTRAIN(l, -1.0f, 0.999999f);
+      CONSTRAIN(r, -1.0f, 0.999999f);
+      outL[i] = l;
+      outR[i] = r;
+    }
   } else if (adapter_media) {
     const int super = unit->media_ == beads::Processor::MEDIA_DIRTY_TAPE
         ? kSuperDirty : kSuperVintage;
@@ -739,8 +804,11 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
     }
   }
 
-  // mirror of the granular<->delay mode hysteresis (UI only)
-  {
+  // mirror of the granular<->delay mode hysteresis (UI only); the synth
+  // has no tape, so the flag is pinned off there
+  if (unit->synth_mode_) {
+    unit->delay_mode_ = false;
+  } else {
     const float threshold = unit->delay_mode_ ? 0.98f : 0.99f;
     const float direction = cur[POT_SIZE] > threshold ? 1.0f : -1.0f;
     unit->delay_mode_transition_ += direction * float(inNumSamples) / SAMPLERATE;

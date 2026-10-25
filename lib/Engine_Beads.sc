@@ -6,7 +6,7 @@
 // Commands (all floats):
 //   time time_amt size size_amt shape shape_amt pitch pitch_amt density
 //   feedback drywet reverb gain freeze seed latch media mono sync
-//   pitch_cv (active, semitones)
+//   pitch_cv (active, semitones) synth gate
 //   clock (no args - one beat pulse, counter pattern)
 // Polls:
 //   beads_reserve  - 0..1, fraction of buffer before oldest audio is lost
@@ -94,6 +94,10 @@ Engine_Beads : CroneEngine {
 			synth.set(\pitchCvOn, msg[1]);
 			synth.set(\pitchCv, msg[2]);
 		});
+		// wavetable synth mode (manual switch - the hardware's no-input
+		// state) and the output-gate mode (mono sum + trigger on right)
+		this.addCommand("synth", "f", { arg msg; synth.set(\synth, msg[1]) });
+		this.addCommand("gate", "f", { arg msg; synth.set(\gate, msg[1]) });
 		// one beat pulse from the script's clock loop (counter pattern)
 		this.addCommand("clock", "", {
 			clockCount = clockCount + 1;

@@ -66,29 +66,32 @@ the restart (or re-selecting the script), but no rebuild.
 K1 is left untouched — it is the norns system menu key.
 
 **PLAY page is a live view of the granulator** (the record head stays
-fixed — tape frame): every grain is drawn as a sub-arc of the loop at its
-true read position, and they move. Positions and motion follow the DSP's
-per-grain laws: each spawn re-rolls time/size/pitch/shape through the same
-per-trigger randomization as the module's attenurandomizers, the read
-point drifts through the loop at `(playback_ratio − 1)` loop-fractions per
-second (pitch 0 = fixed reading point, pitch up slides toward older tape),
-arc length maps the grain's own duration (log-mapped 8 ms–4 s), brightness
-follows the grain's envelope (shape), dim = reverse, and grains die at the
-end of their life. The exact expected concurrent count (rate × duration,
-e.g. "16 grains") is printed inside the loop. Two 6-spoke reels sit in the
-end caps and rotate with the tape — rim speed equals tape surface speed,
-so they turn once per loop at the reel's radius. Grains only appear when
-the gate is open (latch on, or K3 held), the density deadband taps spawn a
-grain per press, and media changes clear the view (the buffer resets). In
-delay mode (SIZE max) the display shows the static read position with
-regen echoes.
+fixed — tape frame): every grain is drawn at its true position and size
+against the loop, and they move. The geometry mirrors `DelayGrain` exactly:
+each grain's **material span** is `pitch_ratio × duration` seconds of tape,
+glued to the loop (it recedes with the tape like the splice does); forward
+grains extend toward newer material, reverse grains (SIZE < 1/3, dimmed)
+toward older; a bright stylus pixel sweeps the span at the playback ratio
+(pitch 0 = riding the tape, pitch up = chasing the head, pitch down =
+sliding away). Spawns re-roll time/size/pitch/shape through the same
+per-trigger randomization as the module's attenurandomizers, with the DSP's
+head-crossing trims and STOP policy (a grain that reaches the head dies).
+Brightness follows the grain's envelope (shape). The exact expected
+concurrent count (rate × duration, e.g. "16 grains") is printed inside the
+loop. Two 6-notch reels sit in the end caps, phase-locked to the splice:
+one rotation per loop pass, notch up when the splice passes the head, and
+everything stops on freeze. Grains only appear when the gate is open (latch
+on, or K3 held), the density deadband taps spawn a grain per press, and
+media changes clear the view (the buffer resets). In delay mode (SIZE max)
+the display shows the static read position with regen echoes.
 
 Pages: **PLAY** (time, pitch, pitch amount — tape-loop view), **GRAIN**
 (density, size, shape — grain envelope preview), **RANDOM** (the
 attenurandomizers: time/size/shape amounts, bipolar bars), **MIX**
 (feedback, reverb, dry/wet), **CLOCK** (sync to norns BPM, subdivision,
 seed latch), **SETUP** (media, channels, input gain), **MIDI** (note
-pitch, reference note, bend range).
+pitch, reference note, bend range), **SYNTH** (wavetable synth mode,
+bank, gate output).
 
 Every control steps exactly one display increment per encoder detent
 (pitch 0.1 st, input gain 1 setting, amounts 0.02, the 0–1 params 0.005).
@@ -102,6 +105,29 @@ amount** is the CV depth — exactly the module's PITCH AMOUNT attenuverter:
 (enabling note pitch auto-raises a zero amount to 1). Any MIDI device
 assigned in SYSTEM > DEVICES > MIDI is picked up; the header shows NOTE
 while a note is held.
+
+**Wavetable synth mode** (SYNTH page) is the module's no-input mode,
+switched manually (norns cannot sense unpatched jacks, so the hardware's
+10-second auto-activation has no faithful equivalent). It runs Plaits'
+raw wavetable banks through the same granular engine at native 48 kHz:
+FEEDBACK becomes a 12-bank wavetable selector (SYNTH E3 shows the bank),
+DRY/WET balances the continuous oscillator against the granularized
+layer, the media switch becomes the output resolution, DENSITY/SIZE/
+SHAPE/TIME keep their meanings, PITCH CV folds into the root note while
+the pitch attenurandomizer pure-randomizes (hardware behavior), and
+FREEZE halts the grain envelopes and new grains. The header shows SYN.
+
+**Gate output** (SYNTH E4) is the hardware's output-gate flag: the left
+output carries the mono sum and the right output emits the grain trigger
+gate (usable in both modes).
+
+**Delay-mode density** reads as the hardware's ratio ring: with clock
+sync (or tapping) it shows the subdivision of the tapped interval
+(`1/16 … 1/1` binary counterclockwise, `1/2, 1/3, 1/4, 1/6, 1/8, 1/10,
+1/12, 1/16` clockwise — the DSP's exact 20-slot kRatio table); with the
+latch on and nothing patched it shows the free-running interval shift
+(`x1.00` at noon). The CLOCK page subdivision macro targets the exact
+kRatio slot centers.
 
 The AMOUNT knobs mirror the module's attenurandomizers and pass through the
 hardware attenuverter law (center dead zone, expanding curve): positive
@@ -153,8 +179,10 @@ All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and the
   module).
 - Pitch is a continuous ±24 st param (the panel's virtual detents aren't
   emulated).
-- The wavetable "no input" synth mode, flash buffer autosave, output-gate
-  mode and assignable-CV routing are not ported.
+- The wavetable synth mode is switched manually (SYNTH page) — the
+  hardware auto-activates it by sensing unpatched inputs, which norns
+  cannot do. Flash buffer autosave and assignable-CV routing are not
+  ported.
 - MEDIA / channel changes are ignored while frozen (the firmware instead
   saves/restores the buffer around the codec restart; the net audible
   result — buffer preserved across a frozen media change — matches).

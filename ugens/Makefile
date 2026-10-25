@@ -9,12 +9,15 @@
 # scsynth shipped by norns.
 
 CXX      ?= g++
+# -include stdio.h: the vendored wavetable_granular_player.h prints under
+# TEST without including <cstdio>; the vendor tree stays byte-pristine
 CXXFLAGS := -shared -fPIC -O3 -funroll-loops -std=gnu++14 -DTEST \
-            -Wno-unknown-pragmas \
+            -include stdio.h -Wno-unknown-pragmas \
             -Isc-plugin-headers -Ieurorack-beads
 
 SRCS := beads_ugen.cpp \
 	eurorack-beads/beads/dsp/processor.cc \
+	eurorack-beads/beads/dsp/synth.cc \
 	eurorack-beads/beads/dsp/trigger_generator.cc \
 	eurorack-beads/beads/dsp/delay_controller.cc \
 	eurorack-beads/beads/dsp/delay_clock.cc \
