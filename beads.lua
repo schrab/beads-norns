@@ -15,6 +15,11 @@
 --   MIX    E2 feedback   E3 reverb     E4 dry/wet
 --   CLOCK  E2 sync    E3 subdivision  E4 seed latch
 --   SETUP  E2 media   E3 channels      E4 input gain
+--   MIDI   E2 note pitch E3 ref note   E4 bend range
+--
+-- MIDI note pitch = the hardware PITCH CV jack: notes (last-note priority,
+-- held on release) transpose by (note - ref) semitones; PLAY E4 "pitch
+-- amount" is the CV depth, like the module's PITCH AMOUNT knob.
 --
 -- amounts (RANDOM page): positive = spray the param toward random per grain
 -- (pitch: +-24 st), negative = peak near the knob value, 0 = off
@@ -28,14 +33,83 @@
 engine.name = "Beads"
 
 local beadse = include "lib/beads_engine"
+local musicutil = require "musicutil"
 
 local STATS = { reserve = 1.0, dmode = 0.0 }
 
-local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "CLOCK", "SETUP" }
+local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "CLOCK", "SETUP", "MIDI" }
 local page = 1
 local seed_down = false
 local dirty = true
 local redrawer
+
+-- MIDI note pitch (PITCH CV jack equivalent)
+local midi_stack = {}   -- held notes, most recent last
+local last_note = nil   -- persists after release: a CV keyboard holds voltage
+local bend_st = 0.0
+local last_cv_sent = nil
+
+local function push_pitch_cv()
+  if params:get("midi_pitch") ~= 2 then
+    if last_cv_sent ~= false then
+      last_cv_sent = false
+      pcall(function() engine.pitch_cv(0, 0) end)
+    end
+    return
+  end
+  local cv = 0
+  if last_note then
+    cv = util.clamp(last_note - params:get("midi_ref") + bend_st, -60, 60)
+  end
+  if last_cv_sent ~= cv then
+    last_cv_sent = cv
+    pcall(function() engine.pitch_cv(1, cv) end)
+  end
+end
+
+local function midi_note_on(note)
+  for i, n in ipairs(midi_stack) do
+    if n == note then table.remove(midi_stack, i) break end
+  end
+  table.insert(midi_stack, note)
+  last_note = note
+  push_pitch_cv()
+  dirty = true
+end
+
+local function midi_note_off(note)
+  for i, n in ipairs(midi_stack) do
+    if n == note then table.remove(midi_stack, i) break end
+  end
+  if #midi_stack > 0 then last_note = midi_stack[#midi_stack] end
+  push_pitch_cv()
+  dirty = true
+end
+
+local function midi_bend(val)
+  local range = params:get("midi_bend")
+  if range == 0 then return end
+  bend_st = (val / 8192 - 1) * range
+  push_pitch_cv()
+end
+
+local function midi_event(data)
+  local msg = midi.to_msg(data)
+  if msg.type == "note_on" and msg.vel > 0 then
+    midi_note_on(msg.note)
+  elseif msg.type == "note_off" or (msg.type == "note_on" and msg.vel == 0) then
+    midi_note_off(msg.note)
+  elseif msg.type == "pitchbend" then
+    midi_bend(msg.val)
+  end
+end
+
+-- (re)assert handlers on every vport: covers devices assigned after start
+local function midi_connect_all()
+  for i = 1, #midi.vports do
+    pcall(function() midi.connect(i).event = midi_event end)
+  end
+end
 
 local W, H = 128, 64
 
@@ -212,6 +286,7 @@ local function header()
   if seed_down then tag = tag .. " SEED" end
   if params:get("latch") == 1 then tag = tag .. " LATCH" end
   if params:get("sync") == 2 then tag = tag .. " CLK" end
+  if #midi_stack > 0 then tag = tag .. " NOTE" end
   if tag ~= "" then
     screen.level(15)
     screen.move(32, 8)
@@ -285,11 +360,17 @@ function init()
 
   beadse.on_sync = function() start_sync() dirty = true end
   beadse.on_latch = function() start_sync() dirty = true end
+  beadse.on_midi_pitch = function() push_pitch_cv() dirty = true end
+  beadse.on_midi_cv = function() push_pitch_cv() dirty = true end
+  midi_connect_all()
   start_sync()
 
   redrawer = clock.run(function()
+    local ticks = 0
     while true do
       clock.sleep(1 / 15)
+      ticks = ticks + 1
+      if ticks % 30 == 0 then midi_connect_all() end
       sync_watchdog()
       if dirty then
         dirty = false
@@ -322,6 +403,18 @@ function enc(n, d)
       params:set("latch", 1)
     else
       params:set("latch", 0)
+    end
+    dirty = true
+    return
+  end
+  if page == 7 then
+    -- MIDI: E2 note pitch, E3 reference note, E4 bend range
+    if n == 2 then
+      params:set("midi_pitch", d > 0 and 2 or 1)
+    elseif n == 3 then
+      params:delta("midi_ref", d)
+    elseif n == 4 then
+      params:delta("midi_bend", d)
     end
     dirty = true
     return
@@ -570,7 +663,8 @@ function redraw()
     screen.level(4)
     screen.move(0, 62)
     screen.text("sync needs latch; delay mode: size to max")
-  else
+  elseif page == 6 then
+    -- SETUP
     local rows = {
       { "E2 media", beadse.media_name(params:get("media")) },
       { "E3 chans", params:get("mono") == 2 and "mono" or "stereo" },
@@ -588,6 +682,33 @@ function redraw()
     screen.level(4)
     screen.move(0, 62)
     screen.text("K2 freeze  K3 seed  clock: CLOCK page")
+  else
+    -- MIDI: notes stand in for the hardware PITCH CV jack
+    local ref = params:get("midi_ref")
+    local rows = {
+      { "E2 note pitch", params:get("midi_pitch") == 2 and "on" or "off" },
+      { "E3 ref note", musicutil.note_num_to_name(ref) },
+      { "E4 bend range", params:get("midi_bend") == 0 and "off"
+          or (params:get("midi_bend") .. " st") },
+    }
+    for i, r in ipairs(rows) do
+      local y = 26 + (i - 1) * 12
+      screen.level(4)
+      screen.move(0, y)
+      screen.text(r[1])
+      screen.level(15)
+      screen.move(52, y)
+      screen.text(r[2])
+    end
+    screen.level(4)
+    screen.move(0, 62)
+    if params:get("midi_pitch") == 2 then
+      local active = last_note and musicutil.note_num_to_name(last_note) or "-"
+      screen.text("cv " .. string.format("%+.1f st", last_cv_sent or 0) ..
+        "  " .. active .. "  depth: PLAY p.amt")
+    else
+      screen.text("off - depth lives on PLAY p.amt")
+    end
   end
 
   screen.update()

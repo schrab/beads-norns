@@ -19,4 +19,8 @@ tar czf - \
       rm -f $DEST/ugens/*.o $DEST/ugens/BeadsUGen.so && \
       rm -f ~/.local/share/SuperCollider/Extensions/BeadsUGens/BeadsUGen.so"
 
+# the CLASS file is excluded from the tar (sclang compiles every .sc under
+# ~/dust) but must still reach Extensions whenever it changes
+scp -q ugens/BeadsUGen.sc "$HOST:~/.local/share/SuperCollider/Extensions/BeadsUGens/"
+
 echo "synced + built. restart with: ssh $HOST sudo systemctl restart norns.target"

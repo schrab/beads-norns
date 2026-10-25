@@ -5,7 +5,9 @@
 //
 // Commands (all floats):
 //   time time_amt size size_amt shape shape_amt pitch pitch_amt density
-//   feedback drywet reverb gain freeze seed latch media mono
+//   feedback drywet reverb gain freeze seed latch media mono sync
+//   pitch_cv (active, semitones)
+//   clock (no args - one beat pulse, counter pattern)
 // Polls:
 //   beads_reserve  - 0..1, fraction of buffer before oldest audio is lost
 //   beads_write    - 0..1, write-head position in the recorded region
@@ -86,6 +88,12 @@ Engine_Beads : CroneEngine {
 		this.addCommand("media", "f", { arg msg; synth.set(\media, msg[1]) });
 		this.addCommand("mono", "f", { arg msg; synth.set(\mono, msg[1]) });
 		this.addCommand("sync", "f", { arg msg; synth.set(\sync, msg[1]) });
+		// MIDI note pitch, the hardware PITCH-CV jack equivalent:
+		// msg[1] = active (jack patched), msg[2] = cv in semitones
+		this.addCommand("pitch_cv", "ff", { arg msg;
+			synth.set(\pitchCvOn, msg[1]);
+			synth.set(\pitchCv, msg[2]);
+		});
 		// one beat pulse from the script's clock loop (counter pattern)
 		this.addCommand("clock", "", {
 			clockCount = clockCount + 1;

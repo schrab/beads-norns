@@ -7,6 +7,8 @@
 
 local beadse = {}
 
+local musicutil = require "musicutil"
+
 local MEDIA = { "scorched tape", "sunny tape", "cold digital", "digital" }
 
 -- controlspec args: (min, max, warp, step, default, units, quantum).
@@ -163,6 +165,45 @@ function beadse.add_params()
     action = function(x)
       engine.sync(x - 1)
       if beadse.on_sync then beadse.on_sync(x) end
+    end,
+  }
+
+  params:add_separator("beads_midi", "MIDI")
+
+  -- MIDI notes stand in for the hardware PITCH CV jack (1V/oct): notes
+  -- transpose by (note - reference) semitones, PLAY's "pitch amount" is
+  -- the CV depth, exactly like the module's PITCH AMOUNT knob.
+  params:add {
+    type = "option", id = "midi_pitch", name = "note pitch",
+    options = { "off", "on" }, default = 1,
+    action = function(x)
+      if x == 2 and params:get("pitch_amt") == 0 then
+        -- a fresh enable with the CV depth at 0 would read as
+        -- "nothing happens" (the module's attenuverter at noon)
+        params:set("pitch_amt", 1)
+      end
+      if beadse.on_midi_pitch then beadse.on_midi_pitch(x) end
+    end,
+  }
+  params:add {
+    type = "number", id = "midi_ref", name = "reference note",
+    min = 0, max = 127, default = 60,
+    formatter = function(param)
+      return musicutil.note_num_to_name(param:get())
+    end,
+    action = function(x)
+      if beadse.on_midi_cv then beadse.on_midi_cv() end
+    end,
+  }
+  params:add {
+    type = "number", id = "midi_bend", name = "bend range",
+    min = 0, max = 12, default = 2,
+    formatter = function(param)
+      local r = param:get()
+      return r == 0 and "off" or (r .. " st")
+    end,
+    action = function(x)
+      if beadse.on_midi_cv then beadse.on_midi_cv() end
     end,
   }
 

@@ -41,9 +41,10 @@ static InterfaceTable *ft;
 
 using namespace std;
 
-// control-rate args (indices 0..kNumKrArgs-1); audio inputs follow at
-// kNumKrArgs (L) and kNumKrArgs+1 (R)
-static const int kNumKrArgs = 20;
+// control-rate args (indices 0..kNumKrArgs-1): 0..19 panel/switch state,
+// 20 = MIDI pitch-cv active (hardware PITCH-CV jack patched), 21 = pitch cv
+// in semitones; audio inputs follow at kNumKrArgs (L) / kNumKrArgs+1 (R)
+static const int kNumKrArgs = 22;
 static const int kMaxChunk = 128;
 static const int kRingSize = 256;      // >= superblock max (192) + block (64)
 static const int kSuperDirty = 64;     // host samples / scorched superblock
@@ -539,6 +540,9 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
   const bool mono_now = IN0(17) > 0.5f;
   const bool sync_now = IN0(18) > 0.5f;
   const uint32_t clock_count = (uint32_t)IN0(19);
+  const bool pitch_cv_on = IN0(20) > 0.5f;
+  float pitch_cv = IN0(21);
+  CONSTRAIN(pitch_cv, -60.f, 60.f);
 
   const bool adapter_media =
       media_now == beads::Processor::MEDIA_DIRTY_TAPE ||
@@ -611,8 +615,11 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
 
   p.pitch.base = cur[POT_PITCH];     // semitones, +-24 from the panel law
   p.pitch.attenuverter = BeadsUGenAttenuverterLaw(cur[POT_PITCH_AMT]);
-  p.pitch.has_cv = false;
-  p.pitch.cv = 0.0f;
+  // MIDI notes stand in for the hardware PITCH CV jack: active = jack
+  // patched, cv in semitones. The PITCH AMOUNT knob is the CV depth
+  // (attenuverter), negative = CV-driven randomization - like the module.
+  p.pitch.has_cv = pitch_cv_on;
+  p.pitch.cv = pitch_cv;
 
   p.monophonic_mode = false;
 

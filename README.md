@@ -69,10 +69,21 @@ Pages: **PLAY** (time, pitch, pitch amount — tape-loop view), **GRAIN**
 (density, size, shape — grain envelope preview), **RANDOM** (the
 attenurandomizers: time/size/shape amounts, bipolar bars), **MIX**
 (feedback, reverb, dry/wet), **CLOCK** (sync to norns BPM, subdivision,
-seed latch), **SETUP** (media, channels, input gain).
+seed latch), **SETUP** (media, channels, input gain), **MIDI** (note
+pitch, reference note, bend range).
 
 Every control steps exactly one display increment per encoder detent
 (pitch 0.1 st, input gain 1 setting, amounts 0.02, the 0–1 params 0.005).
+
+**MIDI note pitch** (MIDI page) stands in for the hardware PITCH CV jack:
+with it on, notes transpose the granulator by `note − reference` semitones
+(last-note priority; the last note holds on release, like a CV keyboard
+holding its voltage; pitch bend adds its range on top). PLAY's **pitch
+amount** is the CV depth — exactly the module's PITCH AMOUNT attenuverter:
+0 = CV ignored, positive = depth, negative = CV-driven randomization
+(enabling note pitch auto-raises a zero amount to 1). Any MIDI device
+assigned in SYSTEM > DEVICES > MIDI is picked up; the header shows NOTE
+while a note is held.
 
 The AMOUNT knobs mirror the module's attenurandomizers and pass through the
 hardware attenuverter law (center dead zone, expanding curve): positive
@@ -119,8 +130,9 @@ All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and the
 
 ## Differences from the hardware module
 
-- No CV inputs; the AMOUNT knobs work without CV (internal randomization,
-  like an unpatched module).
+- No CV jacks; MIDI notes (MIDI page) are the PITCH CV equivalent and the
+  AMOUNT knobs work without CV (internal randomization, like an unpatched
+  module).
 - Pitch is a continuous ±24 st param (the panel's virtual detents aren't
   emulated).
 - The wavetable "no input" synth mode, flash buffer autosave, output-gate
