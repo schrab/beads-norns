@@ -9,17 +9,21 @@ Not an approximation: `ugens/beads_ugen.cpp` wraps `beads::Processor` from
 cloud with 32 grains, the SIZE > 0.99 multitap delay/tape mode, freeze,
 reverb, the four media character modes), the same wrapping technique as
 v7b1's [mi-UGens](https://github.com/v7b1/mi-UGens) used by
-[mi-eng](https://github.com/okyeron/mi-eng).
+[mi-eng](https://github.com/okyeron/mi-eng). The vendored DSP under
+`ugens/eurorack-beads/` is byte-identical to upstream (verified file-by-file
+against eurorack `f4cfa76` / stmlib `e3bd7c9`); all adaptation to norns lives
+in the wrapper.
 
 ## Layout
 
 ```
-beads.lua               norns script (4 pages, awake/dunes-style UI)
+beads.lua               norns script (6 pages, no alt layers)
 lib/Engine_Beads.sc     CroneEngine wrapper (commands + polls)
 lib/beads_engine.lua    param registration
-ugens/beads_ugen.cpp    SC UGen wrapping beads::Processor
-ugens/eurorack-beads/   vendored beads dsp + stmlib subset (MIT)
+ugens/beads_ugen.cpp    SC UGen: rate adapters + GainControl + beads::Processor
+ugens/eurorack-beads/   vendored beads dsp + stmlib subset (MIT, pristine)
 ugens/sc-plugin-headers/ vendored SC plugin headers (3.13.0)
+deploy.sh               sync to the device, build + install the plugin
 ```
 
 ## Install (on the norns itself — native build, needs g++ + make)
@@ -28,7 +32,7 @@ ugens/sc-plugin-headers/ vendored SC plugin headers (3.13.0)
 # copy this folder to ~/dust/code/beads on the norns, then:
 cd ~/dust/code/beads/ugens
 make && make install
-sudo systemctl restart norns.target
+sudo systemctl restart norns-jack norns-sclang norns-main
 ```
 
 Select `beads` from SELECT. The UGen assumes scsynth at 48 kHz (norns default).
@@ -37,6 +41,18 @@ Note: sclang compiles every `.sc` under `~/dust`, so `ugens/BeadsUGen.sc` must
 NOT be copied there — `make install` puts it in
 `~/.local/share/SuperCollider/Extensions/BeadsUGens/` where it belongs
 (the Makefile tolerates it being absent from the build tree).
+
+## Deploy (from the dev machine)
+
+`./deploy.sh [host]` (default host `fates`) tars the tree to
+`~/dust/code/beads`, rebuilds `BeadsUGen.so` on-device, and installs it (the
+`.so` into `/usr/local/lib/SuperCollider/plugins/` via sudo, the class file
+into `~/.local/share/SuperCollider/Extensions/BeadsUGens/`). Then restart the
+three units explicitly — `systemctl restart norns-jack norns-sclang
+norns-main` (restarting `norns.target` alone does NOT restart bound
+services). Set `clean_shutdown = true` in `~/dust/data/system.state` before
+restarting if the script should resume at boot. Lua-only changes still need
+the restart (or re-selecting the script), but no rebuild.
 
 ## Controls
 
@@ -55,9 +71,14 @@ attenurandomizers: time/size/shape amounts, bipolar bars), **MIX**
 (feedback, reverb, dry/wet), **CLOCK** (sync to norns BPM, subdivision,
 seed latch), **SETUP** (media, channels, input gain).
 
-The AMOUNT knobs mirror the module's attenurandomizers: positive sprays the
-parameter toward random per grain (pitch: ±24 st), negative peaks values
-near the knob, zero = off. Pitch amount sits on PLAY next to pitch.
+Every control steps exactly one display increment per encoder detent
+(pitch 0.1 st, input gain 1 setting, amounts 0.02, the 0–1 params 0.005).
+
+The AMOUNT knobs mirror the module's attenurandomizers and pass through the
+hardware attenuverter law (center dead zone, expanding curve): positive
+sprays the parameter toward random per grain (pitch: ±24 st), negative peaks
+values near the knob, zero (±0.06) = off. Pitch amount sits on PLAY next to
+pitch.
 
 **Clock sync** (CLOCK page, needs the seed latch on, like the hardware's
 clocked SEED jack): the script sends one seed pulse per norns-system beat.
@@ -69,18 +90,6 @@ consistent). Granular mode becomes a clocked divider/probability.
 All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and the
 `beads_*` engine commands are available to other scripts.
 
-## Differences from the hardware module
-
-- No CV inputs; the AMOUNT knobs work without CV (internal randomization,
-  like an unpatched module). The AMOUNT knobs pass through the hardware's
-  attenuverter law (center dead zone, expanding curve), so small amounts do
-  nothing exactly like on the module.
-- Pitch is a continuous ±24 st param (the panel's virtual detents aren't
-  emulated).
-- The wavetable "no input" synth mode, flash buffer autosave, output-gate
-  mode and assignable-CV routing are not ported.
-- MEDIA / channel changes are ignored while frozen (same as firmware).
-
 ## Fidelity notes
 
 - **Sample rates.** On hardware the codec is re-clocked per media and the
@@ -88,9 +97,10 @@ All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and the
   (digital; sunny tape self-decimates 2:1 behind 48 kHz frames). norns'
   scsynth runs at a fixed 48 kHz, so scorched/cold are resampled with the
   same stmlib polyphase converters the firmware uses internally (2:1, and
-  3:2 as up-2/down-3), clocked in aligned superblocks. This costs ~1.5 ms
-  of extra latency on those two media only; loop lengths now match the
-  hardware exactly (16 / 10.7 / 8 / 4 s).
+  3:2 as up-2/down-3), clocked in aligned superblocks (64/192 host samples)
+  so the integer ratios chain exactly. This costs ~1.5 ms of extra latency
+  on those two media only; loop lengths match the hardware exactly
+  (16 / 10.7 / 8 / 4 s).
 - **Input stage.** The hardware's `GainControl` stage is ported: input
   gain 0 = auto-gain (the GAIN knob fully CCW), 1–255 = the hardware
   manual law (s/255)⁴ over 1–40×, with the per-media soft clipping
@@ -101,7 +111,68 @@ All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and the
   unlatched + density in the deadband is silent, which reads as "broken"
   on norns). Everything else about latch/clock semantics follows the
   firmware: LOCKED + external clock = clocked divider / synced delay
-  tempo.
+  tempo; with nothing patched the firmware passes a NULL seed input and
+  the button state alone drives gating and tap tempo.
+- **Parameter granularity.** All controlspecs pass an explicit `quantum`
+  (see Dev notes) so encoder detents match the display, and the AMOUNT
+  params apply the hardware attenuverter curve.
+
+## Differences from the hardware module
+
+- No CV inputs; the AMOUNT knobs work without CV (internal randomization,
+  like an unpatched module).
+- Pitch is a continuous ±24 st param (the panel's virtual detents aren't
+  emulated).
+- The wavetable "no input" synth mode, flash buffer autosave, output-gate
+  mode and assignable-CV routing are not ported.
+- MEDIA / channel changes are ignored while frozen (the firmware instead
+  saves/restores the buffer around the codec restart; the net audible
+  result — buffer preserved across a frozen media change — matches).
+
+## Dev notes (traps hit while building this)
+
+- **controlspec args 4 and 7 are different things.** 4th = `step` (snap
+  grid of stored values), 7th = `quantum` = per-detent increment in
+  NORMALIZED 0..1 units — `Control:delta` adds `d * quantum` to the raw
+  0..1 value (`params/control.lua`). Unset, quantum defaults to 0.01: on a
+  ±24 range that is 0.48 st per detent, and values like +2.0 become
+  unreachable. Rule: `quantum = step / (max - min)`.
+- **Param-id collisions with mods CLOBBER silently** (last add wins): a
+  mod hook adds its own `reverb` param after script init, so the reverb
+  control id here is `rvb`. If you ever rename an id, rename EVERY
+  consumer — the encoder maps in `beads.lua` included.
+- **UGen registration name**: `DefineDtorUnit(X)` registers under the
+  STRUCT name; it must equal the sclang class name (`BeadsUGen.ar`), or
+  every synthdef is rejected server-side ("UGen not installed") while the
+  engine still "loads".
+- **Plugin install locations (norns scsynth 3.13)**: `.so` →
+  `/usr/local/lib/SuperCollider/plugins/` (the dir scsynth scans;
+  Extensions-dir `.so`s are NOT loaded). Class `.sc` →
+  `~/.local/share/SuperCollider/Extensions/BeadsUGens/`. Never a `.sc`
+  under `~/dust` (duplicate class compile → SUPERCOLLIDER FAIL).
+- **Build needs `-DTEST`** (stmlib portable impls of `Clip16`/`Sqrt`,
+  section attributes) plus `stmlib/utils/random.cc` and
+  `stmlib/dsp/units.cc` linked — without them the `.so` resolves symbols
+  only via dlopen interposition from mi-UGens `.so`s (a lottery).
+  Verify: `nm BeadsUGen.so --undefined-only` → empty.
+- **Qualify `beads::FloatFrame`** in the UGen C++ — unqualified, an SC
+  header typedef shadows it and the build fails (or worse).
+- **Seed input must be NULL when unsynced**: `TriggerGenerator::Render`
+  treats non-NULL seed input + LOCKED as an EXTERNAL CLOCK (density
+  becomes division/probability). The firmware with an unpatched SEED jack
+  passes NULL; the button state alone carries gating/tap tempo.
+- The SRC adapters run the scorched/cold engines in aligned superblocks
+  via per-channel sample rings (`BeadsUGen_Superblock` in
+  `beads_ugen.cpp`); clock pulses are queued as absolute host-sample
+  indices and mapped to engine frames. If you touch block sizes, keep
+  `kRingSize ≥ max superblock + block` and the superblocks exact
+  multiples of the rate ratio.
+- **Script resume needs `clean_shutdown = true`** in
+  `~/dust/data/system.state` — a `systemctl restart` is never "clean",
+  so set it before restarting or the box boots to NO SCRIPT.
+- On this Fates box, check `vcgencmd get_throttled` FIRST on any
+  weirdness (bits 0/2 = PSU under-voltage, bit 3 = thermal → scsynth
+  clean-exits → engine loads hang forever).
 
 ## Credits & licenses
 
