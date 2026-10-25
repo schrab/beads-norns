@@ -300,13 +300,10 @@ end
 
 local function density_string(d)
   if STATS.dmode > 0.5 then
-    -- delay mode: density is a subdivision of the tapped/clocked base
-    -- interval (clocked/tapped), or a plain interval shift when the
-    -- base is free-running (latched, nothing patched)
-    if (params:get("sync") == 2 and params:get("latch") == 1) or seed_down then
-      return delay_division(d)
-    end
-    return string.format("x%.2f", 2 ^ (-math.abs(d - 0.5) * 18))
+    -- delay mode: density reads as the hardware's ratio ring
+    -- (the free-running path sweeps the interval continuously, but the
+    -- label follows the printed ring)
+    return delay_division(d)
   end
   local r = density_rate(d)
   if r > 0 then

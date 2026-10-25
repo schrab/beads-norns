@@ -121,13 +121,13 @@ FREEZE halts the grain envelopes and new grains. The header shows SYN.
 output carries the mono sum and the right output emits the grain trigger
 gate (usable in both modes).
 
-**Delay-mode density** reads as the hardware's ratio ring: with clock
-sync (or tapping) it shows the subdivision of the tapped interval
-(`1/16 … 1/1` binary counterclockwise, `1/2, 1/3, 1/4, 1/6, 1/8, 1/10,
-1/12, 1/16` clockwise — the DSP's exact 20-slot kRatio table); with the
-latch on and nothing patched it shows the free-running interval shift
-(`x1.00` at noon). The CLOCK page subdivision macro targets the exact
-kRatio slot centers.
+**Delay-mode density** reads as the hardware's ratio ring in all delay
+mode states: `1/16 … 1/1` binary counterclockwise, `1/2, 1/3, 1/4, 1/6,
+1/8, 1/10, 1/12, 1/16` clockwise — the DSP's exact 20-slot kRatio table.
+(Clock sync / tapping subdivides the tapped interval; the free-running
+latched path sweeps the interval continuously, but the label follows the
+printed ring.) The CLOCK page subdivision macro targets the exact kRatio
+slot centers.
 
 The AMOUNT knobs mirror the module's attenurandomizers and pass through the
 hardware attenuverter law (center dead zone, expanding curve): positive
