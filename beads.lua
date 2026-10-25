@@ -331,10 +331,19 @@ function redraw()
     screen.text(string.format("%+.1f st", params:get("pitch")))
 
     local bx, bw = 4, 120
+    local wx = bx + STATS.write * bw
+
+    -- grain positions are write-head-relative (live grains ride the tape),
+    -- so the whole cloud marches with the write head and freezes with it
+    local function tape_x(pos)
+      local rel = STATS.write - pos
+      rel = rel - math.floor(rel)
+      return bx + rel * bw
+    end
 
     if STATS.dmode > 0.5 then
       -- tape/delay mode: repeats marching right from the read position
-      local tx = bx + params:get("time") * bw
+      local tx = tape_x(params:get("time"))
       for i = 0, 5 do
         local x = tx + i * 5
         if x > bx + bw then break end
@@ -344,43 +353,44 @@ function redraw()
         screen.stroke()
       end
     else
-      -- grain field: count from rate x duration, mark length from the
-      -- duration law, position from time (+ scatter with time amount),
-      -- dim marks = reverse grains (size < 1/3)
+      -- grain cloud: count = rate x duration (density x size), mark
+      -- length = duration law, x scatter = time amount, dim = reverse
       local size = params:get("size")
       local rate = density_rate(params:get("density"))
       local dur = grain_dur_s(size)
-      local n = util.clamp(math.floor(rate * dur + 0.5), 1, 8)
+      local n = util.clamp(math.floor(rate * dur + 0.5), 1, 10)
       local spread = rate > 0 and math.abs(params:get("time_amt")) or 0
       local len = util.clamp(
         4 + 34 * (math.log(dur) - math.log(0.008)) /
         (math.log(4) - math.log(0.008)), 2, 38)
       local rev = size < 1 / 3
-      local lanes = { 31, 37, 43 }
       for i = 1, n do
         local frac = (i * 0.61803398875) % 1
         local pos = util.clamp(params:get("time") + (frac - 0.5) * spread, 0, 1)
-        local cx = bx + pos * bw
+        local cx = tape_x(pos)
+        local y = 32 + math.floor(((i * 0.375) % 1) * 14)
         local x1 = util.clamp(cx - len / 2, bx, bx + bw - 1)
         local x2 = util.clamp(cx + len / 2, bx + 1, bx + bw)
         screen.level(rate > 0 and (rev and 6 or 12) or 4)
-        screen.move(x1, lanes[(i - 1) % 3 + 1])
-        screen.line(x2, lanes[(i - 1) % 3 + 1])
+        screen.move(x1, y)
+        screen.line(x2, y)
         screen.stroke()
       end
     end
 
-    -- tape band: the recorded buffer, brightness = overwrite reserve,
-    -- live write-head tick (freezes with the tape)
-    local band_y = 51
+    -- recorded buffer band (brightness = overwrite reserve) with the
+    -- WRITE head as a downward triangle: sweeps at constant tape speed
+    -- while recording, stops when frozen
+    local band_y = 52
     screen.level(1 + math.floor(STATS.reserve * 5))
     screen.rect(bx, band_y, bw, 2)
     screen.fill()
-    local wx = bx + STATS.write * bw
     screen.level(15)
-    screen.move(wx, band_y - 2)
-    screen.line(wx, band_y + 4)
-    screen.stroke()
+    screen.move(wx - 2, band_y - 3)
+    screen.line(wx, band_y)
+    screen.line(wx + 2, band_y - 3)
+    screen.close()
+    screen.fill()
 
     -- footer
     screen.level(4)
