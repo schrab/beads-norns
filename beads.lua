@@ -613,6 +613,10 @@ function redraw()
   screen.clear()
   screen.aa(0)
   screen.line_width(1)
+  -- round joins/caps: the thick grain-span strokes wrap the pill's end
+  -- caps - cairo's default miter join spikes there (jagged edges)
+  screen.line_join("round")
+  screen.line_cap("round")
   header()
 
   if page == 1 then
@@ -678,7 +682,7 @@ function redraw()
     -- curve (no rotating chords)
     local function path_stroke(q, len_px, level)
       local d = (len_px / 2) / T
-      local steps = math.max(3, math.min(24, math.floor(len_px / 2)))
+      local steps = math.max(3, math.min(48, math.floor(len_px / 2)))
       screen.line_width(3)
       screen.level(level)
       local x, y = loop_point(q - d)
