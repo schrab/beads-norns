@@ -353,10 +353,11 @@ function redraw()
       end
     end
 
-    -- the loop: 1px outline (aa'd sampled path)
+    -- the loop: 1px outline (aa'd sampled path), shaded by overwrite
+    -- reserve (dims as the head approaches unrecorded tape)
     screen.aa(1)
     screen.line_width(1)
-    screen.level(3)
+    screen.level(2 + math.floor(STATS.reserve * 4))
     local segs = 48
     local x0, y0 = loop_point(0)
     screen.move(x0, y0)
@@ -365,6 +366,12 @@ function redraw()
       screen.line(x, y)
     end
     screen.stroke()
+
+    -- the record head is a FIXED symbol on the loop (left end of the top
+    -- straight); the tape moves past it. Grain/read positions are drawn
+    -- as fixed offsets from the head along the loop - static until a
+    -- parameter changes, nothing animates on its own
+    local HEAD_T = 0.0
 
     -- a grain is a trimmed segment of a second 3px stroke on the same
     -- path: sample the loop between q-d and q+d so the dash follows the
@@ -391,7 +398,7 @@ function redraw()
 
     if STATS.dmode > 0.5 then
       -- tape mode: read position with regen echoes trailing behind
-      local base = (STATS.write - params:get("time")) % 1
+      local base = (HEAD_T - params:get("time")) % 1
       for i = 3, 0, -1 do
         path_stroke(base + i * 0.09, 5, 15 - i * 4)
       end
@@ -413,11 +420,11 @@ function redraw()
         local pos = params:get("time")
             + (rate > 0 and (k / rate) / buf_s or 0)
             + (frac - 0.5) * spread
-        path_stroke((STATS.write - pos) % 1, len, rev and 6 or 12)
+        path_stroke((HEAD_T - pos) % 1, len, rev and 6 or 12)
       end
       if rate <= 0 and params:get("latch") == 0 then
         -- deadband, gated: one manual grain at the time position
-        path_stroke((STATS.write - params:get("time")) % 1, 5, 6)
+        path_stroke((HEAD_T - params:get("time")) % 1, 5, 6)
       end
       -- exact count, centered in the loop
       screen.level(n > 0 and 15 or 4)
@@ -425,12 +432,12 @@ function redraw()
       screen.text_center(n_exp > 12 and ">12" or tostring(n_exp))
     end
 
-    -- write head: tick crossing the loop (sweeps while recording,
-    -- freezes with the tape)
-    local hx, hy = loop_point(STATS.write)
+    -- the static record head: a short fixed line crossing the loop at
+    -- HEAD_T (with a small notch below - it touches the tape)
+    local hx, hy = loop_point(HEAD_T)
     screen.level(15)
-    screen.move(hx, hy - 3)
-    screen.line(hx, hy + 4)
+    screen.move(hx - 1, hy - 4)
+    screen.line(hx - 1, hy + 5)
     screen.stroke()
     screen.aa(0)
 
