@@ -124,6 +124,7 @@ local function midi_connect_all()
 end
 
 local W, H = 128, 64
+local MEDIA_SHORT = { "scorched", "sunny", "cold", "digital" }
 
 -- clocked-mode subdivisions: in clocked delay/granular the DENSITY knob
 -- walks the DSP's ratio table (1/16..1/1 below center, beat multiples
@@ -430,6 +431,8 @@ local function header()
   if seed_down then tag = tag .. " SEED" end
   if params:get("latch") == 1 then tag = tag .. " LATCH" end
   if params:get("sync") == 2 then tag = tag .. " CLK" end
+  local amt = params:get("pitch_amt")
+  if amt ~= 0 then tag = tag .. " P" .. string.format("%+.1f", amt) end
   if #midi_stack > 0 then tag = tag .. " NOTE" end
   if tag ~= "" then
     screen.level(15)
@@ -799,9 +802,8 @@ function redraw()
     -- footer
     screen.level(4)
     screen.move(0, 62)
-    screen.text(beadse.media_name(params:get("media")) .. "  " ..
-      density_string(params:get("density")) ..
-      "  p.amt " .. string.format("%+.2f", params:get("pitch_amt")))
+    screen.text(MEDIA_SHORT[params:get("media")] .. "  " ..
+      density_string(params:get("density")))
   elseif page == 2 then
     draw_envelope(4, 22, 119, 26, params:get("shape"))
     screen.level(4)
@@ -820,12 +822,10 @@ function redraw()
     screen.move(0, 62)
     if params:get("sync") == 2 and params:get("latch") == 1 then
       -- clocked: density IS the subdivision (E2 edits it here too)
-      screen.text("envelope - E4 shape " ..
-        string.format("%.2f", params:get("shape")) ..
-        "  E2 div " .. sync_div_label())
+      screen.text("env " .. string.format("%.2f", params:get("shape")) ..
+        "  div " .. sync_div_label())
     else
-      screen.text("envelope - E4 shape " ..
-        string.format("%.2f", params:get("shape")) ..
+      screen.text("env " .. string.format("%.2f", params:get("shape")) ..
         (params:get("size") < 1 / 3 and "  rev" or
           (params:get("size") > 0.99 and "  delay" or "")))
     end
@@ -845,7 +845,7 @@ function redraw()
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("0=off  +=random  -=peaked (per grain)")
+    screen.text("0=off + rnd - peaked")
   elseif page == 4 then
     local rows = {
       { "E2 feedback", params:get("feedback") },
@@ -862,11 +862,10 @@ function redraw()
     screen.level(4)
     screen.move(0, 62)
     if params:get("sync") == 2 then
-      screen.text("delay = " ..
-        string.format("%d", math.floor(safe_bpm() + 0.5)) ..
-        " bpm x " .. sync_div_label() .. "  (CLOCK)")
+      screen.text(string.format("%d", math.floor(safe_bpm() + 0.5)) ..
+        " bpm x " .. sync_div_label())
     else
-      screen.text("clock settings on CLOCK page")
+      screen.text("clock: CLOCK page")
     end
   elseif page == 5 then
     -- CLOCK
@@ -888,7 +887,7 @@ function redraw()
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("sync needs latch; delay mode: size to max")
+    screen.text("sync needs latch")
   elseif page == 6 then
     -- SETUP
     local rows = {
@@ -907,7 +906,7 @@ function redraw()
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("K2 freeze  K3 seed  clock: CLOCK page")
+    screen.text("K2 freeze  K3 seed")
   else
     -- MIDI: notes stand in for the hardware PITCH CV jack
     local ref = params:get("midi_ref")
@@ -931,9 +930,9 @@ function redraw()
     if params:get("midi_pitch") == 2 then
       local active = last_note and musicutil.note_num_to_name(last_note) or "-"
       screen.text("cv " .. string.format("%+.1f st", last_cv_sent or 0) ..
-        "  " .. active .. "  depth: PLAY p.amt")
+        "  " .. active)
     else
-      screen.text("off - depth lives on PLAY p.amt")
+      screen.text("off - depth on PLAY")
     end
   end
 
