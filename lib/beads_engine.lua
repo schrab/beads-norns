@@ -12,7 +12,7 @@ local MEDIA = { "scorched tape", "sunny tape", "cold digital", "digital" }
 local cs = {
   unit = controlspec.new(0, 1, "lin", 0.005, 0.5, ""),
   amt = controlspec.new(-1, 1, "lin", 0.02, 0, ""),
-  pitch = controlspec.new(-24, 24, "lin", 0.05, 0, "st"),
+  pitch = controlspec.new(-24, 24, "lin", 0.1, 0, "st"),
   gain = controlspec.new(0, 255, "lin", 1, 0, ""),
 }
 

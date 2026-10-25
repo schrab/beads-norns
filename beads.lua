@@ -327,7 +327,7 @@ function enc(n, d)
     return
   end
   local e2 = { "time", "density", "time_amt", "feedback", nil, "media" }
-  local e3 = { "pitch", "size", "size_amt", "reverb", nil, "mono" }
+  local e3 = { "pitch", "size", "size_amt", "rvb", nil, "mono" }
   local e4 = { "pitch_amt", "shape", "shape_amt", "drywet", nil, "gain" }
   local t = n == 2 and e2[page] or (n == 3 and e3[page] or e4[page])
   if t then params:delta(t, d) end
@@ -489,13 +489,13 @@ function redraw()
     screen.move(0, 22)
     screen.text("dens")
     screen.level(15)
-    screen.move(30, 20)
+    screen.move(30, 22)
     screen.text(density_string(params:get("density")))
     screen.level(4)
     screen.move(64, 22)
     screen.text("size")
     screen.level(15)
-    screen.move(90, 20)
+    screen.move(90, 22)
     screen.text(string.format("%.2f", params:get("size")))
     screen.level(4)
     screen.move(0, 62)
