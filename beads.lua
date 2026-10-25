@@ -4,22 +4,23 @@
 -- Granular delay / looper - a port of the eurorack module's DSP
 -- (Emilie Gillet, MIT) as a SuperCollider UGen + CroneEngine.
 --
--- E1 page  E2/E3/E4 = the page's three parameters (no modifier layers)
--- K2 freeze   K3 seed   K1+K3 seed latch   K1+K2 clock sync
+-- E1 page  E2/E3/E4 = the page's three parameters (no modifier layers,
+-- K1 untouched - it is the system menu key)
+-- K2 freeze   K3 seed
 --
 -- pages:
 --   PLAY   E2 time    E3 pitch         E4 pitch amount
 --   GRAIN  E2 density E3 size          E4 shape
 --   RANDOM E2 time amt   E3 size amt   E4 shape amt   (attenurandomizers)
 --   MIX    E2 feedback   E3 reverb     E4 dry/wet
+--   CLOCK  E2 sync    E3 subdivision  E4 seed latch
 --   SETUP  E2 media   E3 channels      E4 input gain
 --
 -- amounts (RANDOM page): positive = spray the param toward random per grain
 -- (pitch: +-24 st), negative = peak near the knob value, 0 = off
 --
--- clock sync (K1+K2, needs latch on): delay mode tempo = norns bpm x
--- DENSITY subdivision; granular mode = clocked divider (hardware SEED-jack
--- clocking)
+-- clock sync (needs latch on): delay mode tempo = norns bpm x subdivision;
+-- granular mode = clocked divider (hardware SEED-jack clocking)
 --
 -- all params (incl. freeze/latch) live in the PARAMS menu; MIDI mapping
 -- works there like any norns script.
@@ -30,11 +31,8 @@ local beadse = include "lib/beads_engine"
 
 local STATS = { reserve = 1.0, write = 0.0, dmode = 0.0 }
 
-local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "SETUP" }
+local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "CLOCK", "SETUP" }
 local page = 1
-local k1_down = false
-local k1_down_at = 0
-local k1_combo = false   -- did K2/K3 get pressed while K1 held?
 local seed_down = false
 local dirty = true
 local redrawer
@@ -321,44 +319,35 @@ function enc(n, d)
     dirty = true
     return
   end
-  local e2 = { "time", "density", "time_amt", "feedback", "media" }
-  local e3 = { "pitch", "size", "size_amt", "rvb", "mono" }
-  local e4 = { "pitch_amt", "shape", "shape_amt", "drywet", "gain" }
+  if page == 5 then
+    -- CLOCK: E2 sync on/off, E3 subdivision, E4 seed latch
+    if n == 2 then
+      params:set("sync", d > 0 and 2 or 1)
+    elseif n == 3 then
+      sync_div_step(d > 0 and 1 or -1)
+    elseif d > 0 then
+      params:set("latch", 1)
+    else
+      params:set("latch", 0)
+    end
+    dirty = true
+    return
+  end
+  local e2 = { "time", "density", "time_amt", "feedback", nil, "media" }
+  local e3 = { "pitch", "size", "size_amt", "reverb", nil, "mono" }
+  local e4 = { "pitch_amt", "shape", "shape_amt", "drywet", nil, "gain" }
   local t = n == 2 and e2[page] or (n == 3 and e3[page] or e4[page])
-  params:delta(t, d)
+  if t then params:delta(t, d) end
   dirty = true
 end
 
 function key(n, z)
-  if n == 1 then
-    k1_down = z == 1
-    if z == 1 then
-      k1_down_at = util.time()
-      k1_combo = false
-    elseif not k1_combo
-        and util.time() - k1_down_at < 0.35 then
-      -- K1 tap: on MIX with sync on, cycle the clocked subdivision
-      if page == 4 and params:get("sync") == 2 then
-        sync_div_step(1)
-      end
-      dirty = true
-    end
-  elseif n == 2 and z == 1 then
-    if k1_down then
-      k1_combo = true
-      params:set("sync", params:get("sync") == 2 and 1 or 2)
-    else
-      params:set("freeze", params:get("freeze") == 1 and 0 or 1)
-    end
+  if n == 2 and z == 1 then
+    params:set("freeze", params:get("freeze") == 1 and 0 or 1)
     dirty = true
   elseif n == 3 then
-    if k1_down and z == 1 then
-      k1_combo = true
-      params:set("latch", params:get("latch") == 1 and 0 or 1)
-    else
-      seed_down = z == 1
-      engine.seed(z)
-    end
+    seed_down = z == 1
+    engine.seed(z)
     dirty = true
   end
 end
@@ -544,32 +533,43 @@ function redraw()
       { "E3 reverb", params:get("rvb") },
       { "E4 dry/wet", params:get("drywet") },
     }
-    if params:get("sync") == 2 then
-      -- clocked: subdivision setting (K1 tap cycles the DSP ratio table)
-      rows[#rows + 1] = { "K1 sync div", sync_div_label(), true }
-    end
     for i, r in ipairs(rows) do
-      local y = 24 + (i - 1) * 10
+      local y = 26 + (i - 1) * 12
       screen.level(4)
       screen.move(0, y)
       screen.text(r[1])
-      if r[3] then
-        screen.level(15)
-        screen.move(70, y)
-        screen.text(r[2])
-      else
-        bar(58, y - 5, 66, r[2], 10)
-      end
+      bar(58, y - 5, 66, r[2], 10)
     end
     screen.level(4)
     screen.move(0, 62)
     if params:get("sync") == 2 then
-      screen.text("delay tempo = " ..
+      screen.text("delay = " ..
         string.format("%d", math.floor(safe_bpm() + 0.5)) ..
-        " bpm x " .. sync_div_label())
+        " bpm x " .. sync_div_label() .. "  (CLOCK)")
     else
-      screen.text("K1+K2 clock sync")
+      screen.text("clock settings on CLOCK page")
     end
+  elseif page == 5 then
+    -- CLOCK
+    local rows = {
+      { "E2 sync", params:get("sync") == 2
+          and (string.format("%d", math.floor(safe_bpm() + 0.5)) .. " bpm")
+          or "off" },
+      { "E3 subdiv", sync_div_label() },
+      { "E4 latch", params:get("latch") == 1 and "on (free run)" or "off (gated)" },
+    }
+    for i, r in ipairs(rows) do
+      local y = 26 + (i - 1) * 12
+      screen.level(4)
+      screen.move(0, y)
+      screen.text(r[1])
+      screen.level(15)
+      screen.move(54, y)
+      screen.text(r[2])
+    end
+    screen.level(4)
+    screen.move(0, 62)
+    screen.text("sync needs latch; delay mode: size to max")
   else
     local rows = {
       { "E2 media", beadse.media_name(params:get("media")) },
@@ -587,11 +587,7 @@ function redraw()
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("K1+K2 sync " ..
-      (params:get("sync") == 2
-        and (string.format("%d", math.floor(safe_bpm() + 0.5)) .. "bpm")
-        or "off") ..
-      "  K1+K3 latch " .. (params:get("latch") == 1 and "on" or "off"))
+    screen.text("K2 freeze  K3 seed  clock: CLOCK page")
   end
 
   screen.update()
