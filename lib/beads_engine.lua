@@ -138,7 +138,7 @@ function beadse.add_params()
   }
   params:add {
     type = "binary", id = "latch", name = "seed latch",
-    behavior = "toggle", default = 0,
+    behavior = "toggle", default = 1,
     action = function(x) engine.latch(x) end,
   }
 

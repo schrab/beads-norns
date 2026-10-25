@@ -4,14 +4,14 @@
 -- Granular delay / looper - a port of the eurorack module's DSP
 -- (Emilie Gillet, MIT) as a SuperCollider UGen + CroneEngine.
 --
--- E1 page  E2/E3 values (K1 held = amount layer)
+-- E1 page  E2/E3/E4 = the page's three parameters (K1 held = amount layer)
 -- K2 freeze   K3 seed (hold K1+K3 = seed latch)
 --
 -- pages:
---   PLAY  E2 time    (alt: time amount)    E3 pitch  (alt: pitch amount)
---   GRAIN E2 density (alt: shape)          E3 size   (alt: size amount)
---   MIX   E2 feedback (alt: shape amount)  E3 dry/wet (alt: reverb)
---   SETUP E2 media   (alt: channels)       E3 input gain
+--   PLAY  E2 time   (alt: time amt)    E3 pitch (alt: pitch amt)  E4 dry/wet
+--   GRAIN E2 density (alt: size amt)   E3 size  (alt: shape amt)  E4 shape
+--   MIX   E2 feedback   E3 reverb   E4 input gain
+--   SETUP E2 media   E3 channels  E4 seed latch
 --
 -- all params (incl. freeze/latch) live in the PARAMS menu; MIDI mapping
 -- works there like any norns script.
@@ -56,7 +56,9 @@ local function envelope_point(s, t)
 end
 
 local function draw_envelope(x0, y0, w, h, s)
-  local n = 40
+  local n = 48
+  screen.aa(1)
+  screen.line_width(1.5)
   screen.move(x0, y0 + h)
   for i = 0, n do
     local t = i / n
@@ -65,6 +67,8 @@ local function draw_envelope(x0, y0, w, h, s)
   end
   screen.level(10)
   screen.stroke()
+  screen.aa(0)
+  screen.line_width(1)
 end
 
 local function density_string(d)
@@ -167,6 +171,17 @@ function enc(n, d)
     dirty = true
     return
   end
+  if n == 4 then
+    -- Fates 4th knob: this page's third parameter
+    local p = { "drywet", "shape", "reverb" }
+    if page < 4 then
+      params:delta(p[page], d)
+    elseif d > 0 then
+      params:set("latch", params:get("latch") == 1 and 0 or 1)
+    end
+    dirty = true
+    return
+  end
   local target
   if page == 1 then
     target = (n == 2)
@@ -174,16 +189,12 @@ function enc(n, d)
         or (alt and "pitch_amt" or "pitch")
   elseif page == 2 then
     target = (n == 2)
-        and (alt and "shape" or "density")
-        or (alt and "size_amt" or "size")
+        and (alt and "size_amt" or "density")
+        or (alt and "shape_amt" or "size")
   elseif page == 3 then
-    target = (n == 2)
-        and (alt and "shape_amt" or "feedback")
-        or (alt and "reverb" or "drywet")
+    target = (n == 2) and "feedback" or "reverb"
   else
-    target = (n == 2)
-        and (alt and "mono" or "media")
-        or "gain"
+    target = (n == 2) and "media" or "mono"
   end
   params:delta(target, d)
   dirty = true
@@ -248,7 +259,8 @@ function redraw()
     screen.level(4)
     screen.move(0, 62)
     screen.text(beadse.media_name(params:get("media")) .. "  " ..
-      density_string(params:get("density")))
+      density_string(params:get("density")) ..
+      "  dw " .. string.format("%.2f", params:get("drywet")))
   elseif page == 2 then
     draw_envelope(4, 24, 119, 26, params:get("shape"))
     screen.level(4)
@@ -266,34 +278,27 @@ function redraw()
     screen.level(4)
     screen.move(0, 62)
     if alt then
-      screen.text("shape " .. string.format("%.2f", params:get("shape")))
+      screen.text("alt e2 size amt  alt e3 shape amt")
     else
-      screen.text(params:get("size") < 1 / 3 and "reverse grains" or
-        (params:get("size") > 0.99 and "delay mode" or "forward grains"))
+      screen.text("envelope - E4 shape " ..
+        string.format("%.2f", params:get("shape")))
     end
   elseif page == 3 then
-    local rows
-    if alt then
-      rows = {
-        { "shape amt", (params:get("shape_amt") + 1) / 2 },
-        { "reverb", params:get("reverb") },
-      }
-    else
-      rows = {
-        { "feedback", params:get("feedback") },
-        { "dry/wet", params:get("drywet") },
-      }
-    end
+    local rows = {
+      { "E2 feedback", params:get("feedback") },
+      { "E3 reverb", params:get("reverb") },
+      { "E4 in gain", (params:get("gain") - 0.25) / 3.75 },
+    }
     for i, r in ipairs(rows) do
-      local y = 28 + (i - 1) * 14
+      local y = 30 + (i - 1) * 12
       screen.level(4)
       screen.move(0, y)
       screen.text(r[1])
-      bar(48, y - 5, 76, r[2], 10)
+      bar(58, y - 5, 66, r[2], 10)
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("reverb " .. string.format("%.2f", params:get("reverb")))
+    screen.text("K1 hold = alt layer on PLAY/GRAIN")
   else
     local y = 28
     screen.level(4)
@@ -305,17 +310,17 @@ function redraw()
     y = y + 12
     screen.level(4)
     screen.move(0, y)
-    screen.text("gain")
-    screen.level(15)
-    screen.move(40, y)
-    screen.text(string.format("%.2fx", params:get("gain")))
-    y = y + 12
-    screen.level(4)
-    screen.move(0, y)
     screen.text("chans")
     screen.level(15)
     screen.move(40, y)
     screen.text(params:get("mono") == 2 and "mono" or "stereo")
+    y = y + 12
+    screen.level(4)
+    screen.move(0, y)
+    screen.text("E4 latch")
+    screen.level(15)
+    screen.move(40, y)
+    screen.text(params:get("latch") == 1 and "on (free run)" or "off (gated)")
     screen.level(4)
     screen.move(0, 62)
     screen.text("K2 freeze  K3 seed  K1+K3 latch")

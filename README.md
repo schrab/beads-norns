@@ -43,11 +43,12 @@ NOT be copied there — `make install` puts it in
 | input | action |
 |---|---|
 | E1 | page |
-| E2 / E3 | the two values of the page (labels on screen) |
-| K1 hold | amount layer — the AMOUNT knobs of the module |
+| E2 / E3 | the page's first two parameters (labels on screen) |
+| E4 | the page's third parameter (Fates 4th knob) |
+| K1 hold | amount layer on PLAY/GRAIN — the AMOUNT knobs of the module |
 | K2 | freeze (toggle) |
 | K3 | seed (momentary; in the density deadband = manual grain / tap tempo) |
-| K1 + K3 | seed latch (locked = free-running grains) |
+| K1 + K3 | seed latch (locked = free-running grains; **on by default** — with the latch off, grains only fire while K3 is held, like the hardware module) |
 
 Pages: **PLAY** (time, pitch — tape view with write head + grain position),
 **GRAIN** (density, size — grain envelope preview), **MIX** (feedback, dry/wet,
