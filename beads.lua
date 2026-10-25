@@ -318,20 +318,20 @@ function redraw()
   if page == 1 then
     -- values
     screen.level(4)
-    screen.move(0, 20)
+    screen.move(0, 22)
     screen.text("time")
     screen.level(15)
-    screen.move(38, 20)
+    screen.move(38, 22)
     screen.text(string.format("%.2f", params:get("time")))
     screen.level(4)
-    screen.move(64, 20)
+    screen.move(64, 22)
     screen.text("pitch")
     screen.level(15)
-    screen.move(96, 20)
+    screen.move(96, 22)
     screen.text(string.format("%+.1f st", params:get("pitch")))
 
     local bx, bw = 4, 120
-    local cy, r = 44, 8
+    local cy, r = 42, 12   -- loop spans y30..54 (grown one line taller)
     local L = bw - 2 * r
     local arc_len = math.pi * r
     local T = 2 * L + 2 * arc_len        -- loop perimeter
@@ -450,13 +450,13 @@ function redraw()
   elseif page == 2 then
     draw_envelope(4, 26, 119, 26, params:get("shape"))
     screen.level(4)
-    screen.move(0, 20)
+    screen.move(0, 22)
     screen.text("dens")
     screen.level(15)
     screen.move(30, 20)
     screen.text(density_string(params:get("density")))
     screen.level(4)
-    screen.move(64, 20)
+    screen.move(64, 22)
     screen.text("size")
     screen.level(15)
     screen.move(90, 20)
