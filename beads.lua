@@ -29,7 +29,7 @@ engine.name = "Beads"
 
 local beadse = include "lib/beads_engine"
 
-local STATS = { reserve = 1.0, write = 0.0, dmode = 0.0 }
+local STATS = { reserve = 1.0, dmode = 0.0 }
 
 local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "CLOCK", "SETUP" }
 local page = 1
@@ -257,6 +257,9 @@ end
 function init()
   beadse.add_params()
 
+  -- polls kept lean: reserve feeds the loop shading (8 Hz is plenty),
+  -- dmode is a boolean mode flag (2 Hz). The write-position poll was
+  -- dropped - nothing reads it since the static-head redesign.
   local p_reserve = poll.set("beads_reserve")
   p_reserve.callback = function(v)
     if math.abs(v - STATS.reserve) > 0.03 then
@@ -264,18 +267,8 @@ function init()
       dirty = true
     end
   end
-  p_reserve.time = 1 / 15
+  p_reserve.time = 1 / 8
   p_reserve:start()
-
-  local p_write = poll.set("beads_write")
-  p_write.callback = function(v)
-    if math.abs(v - STATS.write) > 0.008 then
-      STATS.write = v
-      dirty = true
-    end
-  end
-  p_write.time = 1 / 15
-  p_write:start()
 
   local p_dmode = poll.set("beads_dmode")
   p_dmode.callback = function(v)
@@ -284,7 +277,7 @@ function init()
       dirty = true
     end
   end
-  p_dmode.time = 1 / 15
+  p_dmode.time = 1 / 2
   p_dmode:start()
 
   params:default()
@@ -506,10 +499,17 @@ function redraw()
     screen.text(string.format("%.2f", params:get("size")))
     screen.level(4)
     screen.move(0, 62)
-    screen.text("envelope - E4 shape " ..
-      string.format("%.2f", params:get("shape")) ..
-      (params:get("size") < 1 / 3 and "  rev" or
-        (params:get("size") > 0.99 and "  delay" or "")))
+    if params:get("sync") == 2 and params:get("latch") == 1 then
+      -- clocked: density IS the subdivision (E2 edits it here too)
+      screen.text("envelope - E4 shape " ..
+        string.format("%.2f", params:get("shape")) ..
+        "  E2 div " .. sync_div_label())
+    else
+      screen.text("envelope - E4 shape " ..
+        string.format("%.2f", params:get("shape")) ..
+        (params:get("size") < 1 / 3 and "  rev" or
+          (params:get("size") > 0.99 and "  delay" or "")))
+    end
   elseif page == 3 then
     -- RANDOM: the four attenurandomizers (pitch amt lives on PLAY E4)
     local rows = {

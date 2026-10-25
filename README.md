@@ -46,17 +46,25 @@ NOT be copied there — `make install` puts it in
 | E2 / E3 / E4 | the page's three parameters (E4 = Fates 4th knob) |
 | K2 | freeze (toggle) |
 | K3 | seed (momentary; in the density deadband = manual grain / tap tempo) |
-| K1 + K3 | seed latch (locked = free-running grains; **on by default**) |
-| K1 + K2 | clock sync to norns system BPM (needs latch on) |
 
-Pages: **PLAY** (time, pitch, pitch amount — tape view), **GRAIN** (density,
-size, shape — grain envelope preview), **RANDOM** (the attenurandomizers:
-time/size/shape amounts, bipolar bars), **MIX** (feedback, reverb, dry/wet),
-**SETUP** (media, channels, input gain).
+K1 is left untouched — it is the norns system menu key.
+
+Pages: **PLAY** (time, pitch, pitch amount — tape-loop view), **GRAIN**
+(density, size, shape — grain envelope preview), **RANDOM** (the
+attenurandomizers: time/size/shape amounts, bipolar bars), **MIX**
+(feedback, reverb, dry/wet), **CLOCK** (sync to norns BPM, subdivision,
+seed latch), **SETUP** (media, channels, input gain).
 
 The AMOUNT knobs mirror the module's attenurandomizers: positive sprays the
 parameter toward random per grain (pitch: ±24 st), negative peaks values
 near the knob, zero = off. Pitch amount sits on PLAY next to pitch.
+
+**Clock sync** (CLOCK page, needs the seed latch on, like the hardware's
+clocked SEED jack): the script sends one seed pulse per norns-system beat.
+Delay mode (SIZE to max) locks its tempo to bpm × subdivision
+(1/16…1…×16 — the subdivision walks the same DSP ratio table the density
+knob uses when clocked, so GRAIN's density and CLOCK's subdiv stay
+consistent). Granular mode becomes a clocked divider/probability.
 
 All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and the
 `beads_*` engine commands are available to other scripts.
