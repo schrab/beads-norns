@@ -68,18 +68,24 @@ local function start_sync()
     sync_clock = clock.run(function()
       while true do
         clock.sleep(60 / safe_bpm())
-        engine.clock()
+        -- engine commands can throw mid-(re)load; never let that kill
+        -- the pulse loop (the watchdog would flap-restart it)
+        pcall(function() engine.clock() end)
         sync_last = os.clock()
       end
     end)
   end
 end
 
+local sync_restart_at = 0
+
 local function sync_watchdog()
   if params:get("sync") == 2 and params:get("latch") == 1 then
-    local stale = os.clock() - sync_last
-    if stale > (60 / safe_bpm()) * 4 + 2 then
-      start_sync()   -- loop died or clock was reset - revive it
+    local now = os.clock()
+    if now - sync_last > (60 / safe_bpm()) * 4 + 2
+        and now - sync_restart_at > 3 then
+      sync_restart_at = now
+      start_sync()   -- loop died or clock was reset - revive it, rate-limited
     end
   end
 end
@@ -270,8 +276,8 @@ function init()
 end
 
 function cleanup()
-  if redrawer then clock.cancel(redrawer) end
-  stop_sync()
+  pcall(function() if redrawer then clock.cancel(redrawer) end end)
+  pcall(stop_sync)
 end
 
 function enc(n, d)
