@@ -113,7 +113,7 @@ class BeadsGainControl {
       uint8_t gain_setting,
       const float* in_l,
       const float* in_r,
-      FloatFrame* out,
+      beads::FloatFrame* out,
       size_t size) {
     const float hz = static_cast<float>(size) * one_hertz_;
     if (time_ < ignore_time_) {
