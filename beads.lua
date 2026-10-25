@@ -366,14 +366,20 @@ function redraw()
     end
     screen.stroke()
 
-    local function dash(q, len_px, level)
+    -- a grain is a trimmed segment of a second 3px stroke on the same
+    -- path: sample the loop between q-d and q+d so the dash follows the
+    -- curve (no rotating chords)
+    local function path_stroke(q, len_px, level)
       local d = (len_px / 2) / T
-      local x1, y1 = loop_point(q - d)
-      local x2, y2 = loop_point(q + d)
+      local steps = math.max(3, math.floor(len_px / 2))
       screen.line_width(3)
       screen.level(level)
-      screen.move(x1, y1)
-      screen.line(x2, y2)
+      local x, y = loop_point(q - d)
+      screen.move(x, y)
+      for i = 1, steps do
+        local px, py = loop_point(q - d + (2 * d) * i / steps)
+        screen.line(px, py)
+      end
       screen.stroke()
       screen.line_width(1)
     end
@@ -387,26 +393,31 @@ function redraw()
       -- tape mode: read position with regen echoes trailing behind
       local base = (STATS.write - params:get("time")) % 1
       for i = 3, 0, -1 do
-        dash(base + i * 0.09, 5, 15 - i * 4)
+        path_stroke(base + i * 0.09, 5, 15 - i * 4)
       end
     else
-      -- grains ride the loop: count = rate x duration, dash length =
-      -- duration law, offset behind the write head = time (+ scatter
-      -- from time amount), dim = reverse
+      -- grains on the loop: count = rate x duration, arc length =
+      -- duration law. Successive grains are one trigger interval older,
+      -- so they trail behind the read position at their real age
+      -- spacing (k / rate seconds of tape) and never stack; time amount
+      -- adds scatter on top; dim = reverse
       local n_exp = rate > 0 and math.floor(rate * dur + 0.5) or 0
       local n = math.min(n_exp, 12)
-      local spread = rate > 0 and math.abs(params:get("time_amt")) or 0
+      local spread = math.abs(params:get("time_amt"))
+      local buf_s = ({ 16, 10.7, 8, 4 })[params:get("media")]
       local len = util.clamp(
         3 + 11 * (math.log(dur) - math.log(0.008)) /
         (math.log(4) - math.log(0.008)), 3, 14)
-      for i = 1, n do
-        local frac = (i * 0.61803398875) % 1
-        local pos = util.clamp(params:get("time") + (frac - 0.5) * spread, 0, 1)
-        dash((STATS.write - pos) % 1, len, rev and 6 or 12)
+      for k = 0, n - 1 do
+        local frac = ((k + 1) * 0.61803398875) % 1
+        local pos = params:get("time")
+            + (rate > 0 and (k / rate) / buf_s or 0)
+            + (frac - 0.5) * spread
+        path_stroke((STATS.write - pos) % 1, len, rev and 6 or 12)
       end
       if rate <= 0 and params:get("latch") == 0 then
         -- deadband, gated: one manual grain at the time position
-        dash((STATS.write - params:get("time")) % 1, 5, 6)
+        path_stroke((STATS.write - params:get("time")) % 1, 5, 6)
       end
       -- exact count, centered in the loop
       screen.level(n > 0 and 15 or 4)
