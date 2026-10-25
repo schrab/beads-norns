@@ -48,6 +48,12 @@ local redrawer
 local grains = {}
 local spawn_acc = 0
 local pending_pulses = 0
+-- tape splice point (buffer seam): a material point on the virtual tape,
+-- synced from the engine's write-phase poll and dead-reckoned between
+-- polls at one loop per buf_s; freezes with the tape
+local seam_pos = 0
+local seam_have = false
+local reel_angle = 0
 
 -- MIDI note pitch (PITCH CV jack equivalent)
 local midi_stack = {}   -- held notes, most recent last
@@ -289,6 +295,12 @@ local function n_exp_grains(rate, dur)
   return n .. " grains"
 end
 
+-- current loop length in seconds (media + mono)
+local function buf_seconds()
+  return ({ 16, 10.7, 8, 4 })[params:get("media")]
+      * (params:get("mono") == 2 and 2 or 1)
+end
+
 -- granulator particle sim for the PLAY page: mirrors the DSP's per-grain
 -- laws exactly. Each spawn re-rolls time/size/pitch/shape through the
 -- same per-trigger randomization as RandomizedParameter (amount > 0:
@@ -329,7 +341,7 @@ local function spawn_grain()
   }
 end
 
-local function grain_sim_tick(dt)
+local function grain_sim_tick(dt, buf_s, frozen)
   local rate = density_rate(params:get("density"))
   if STATS.dmode < 0.5 and rate > 0
       and (params:get("latch") == 1 or seed_down) then
@@ -354,6 +366,13 @@ local function grain_sim_tick(dt)
       end
       if spawn_acc > 2 then spawn_acc = 2 end
     end
+  end
+  -- read-point drift: on running tape the offset behind the head grows
+  -- at (ratio - 1) loop-fractions per second (tape term 1 minus the
+  -- grain's own sweep); on frozen tape the grain sweeps at full ratio
+  local tape_term = frozen and 0 or 1
+  for _, g in ipairs(grains) do
+    g.pos = (g.pos + (g.ratio - tape_term) * dt / buf_s) % 1
   end
   local now = os.clock()
   for i = #grains, 1, -1 do
@@ -441,6 +460,16 @@ function init()
   p_dmode.time = 1 / 2
   p_dmode:start()
 
+  -- write-head phase = the tape splice: synced every 125 ms, dead-reckoned
+  -- between polls at one loop per buf_s (frozen tape pauses it)
+  local p_write = poll.set("beads_write")
+  p_write.callback = function(v)
+    seam_pos = v
+    seam_have = true
+  end
+  p_write.time = 1 / 8
+  p_write:start()
+
   params:default()
   params:bang()
 
@@ -449,10 +478,12 @@ function init()
   beadse.on_midi_pitch = function() push_pitch_cv() dirty = true end
   beadse.on_midi_cv = function() push_pitch_cv() dirty = true end
   beadse.on_media = function()
-    -- buffer reset (media/mono Configure): no grains survive
+    -- buffer reset (media/mono Configure): no grains survive, splice
+    -- re-syncs from the next poll
     grains = {}
     spawn_acc = 0
     pending_pulses = 0
+    seam_have = false
     dirty = true
   end
   midi_connect_all()
@@ -467,8 +498,18 @@ function init()
       if ticks % 30 == 0 then midi_connect_all() end
       sync_watchdog()
       local now = os.clock()
-      grain_sim_tick(now - last_tick)
+      local dt = now - last_tick
       last_tick = now
+      local buf_s = buf_seconds()
+      local frozen = params:get("freeze") == 1
+      if not frozen then
+        -- tape runs: reels turn one rev per loop, splice advances
+        reel_angle = (reel_angle + 2 * math.pi / buf_s * dt) % (2 * math.pi)
+        if seam_have then
+          seam_pos = (seam_pos + dt / buf_s) % 1
+        end
+      end
+      grain_sim_tick(dt, buf_s, frozen)
       -- PLAY page is live: grains spawn, drift and die continuously
       if page == 1 then dirty = true end
       if dirty then
@@ -626,13 +667,11 @@ function redraw()
     local rate = density_rate(params:get("density"))
     local dur = grain_dur_s(params:get("size"))
     local now = os.clock()
-    local buf_s = ({ 16, 10.7, 8, 4 })[params:get("media")]
-        * (params:get("mono") == 2 and 2 or 1)
 
     -- transport reels: a 6-notch hub in each end cap, one revolution per
     -- loop pass (2pi / buf_s), counterclockwise - the direction tape
-    -- recedes from the static head
-    local tape_rot = (now * (2 * math.pi / buf_s)) % (2 * math.pi)
+    -- recedes from the static head; frozen tape = stopped reels
+    local tape_rot = reel_angle
     local function draw_reel(cx0, cy0)
       local rr = 7
       screen.level(4)
@@ -660,11 +699,12 @@ function redraw()
         path_stroke(base + i * 0.09, 5, 15 - i * 4)
       end
     else
-      -- live grains: positions/drift are exact (spawn offset = time with
-      -- per-grain randomization, read point drifts at (ratio - 1) loop
-      -- fractions per second), length = the grain's own duration
-      -- (log-mapped 8ms..4s), brightness = the grain's envelope (shape),
-      -- dim = reverse. The expected concurrent count is rate x duration.
+      -- live grains: positions are integrated per tick in grain_sim_tick
+      -- (spawn offset = time with per-grain randomization, read point
+      -- drifts at ratio-1 on running tape, ratio on frozen tape), length
+      -- = the grain's own duration (log-mapped 8ms..4s), brightness = the
+      -- grain's envelope (shape), dim = reverse. The expected concurrent
+      -- count is rate x duration.
       local drawn = 0
       for _, g in ipairs(grains) do
         local age = now - g.born
@@ -672,11 +712,10 @@ function redraw()
         if t < 1 then
           local env = envelope_point(g.shape, t)
           if env > 0.02 then
-            local pos = g.pos + (g.ratio - 1) * age / buf_s
             local len = util.clamp(
               3 + 11 * (math.log(g.dur) - math.log(0.008)) /
               (math.log(4) - math.log(0.008)), 3, 14)
-            path_stroke((HEAD_T - pos) % 1, len * (0.6 + 0.4 * env),
+            path_stroke((HEAD_T - g.pos) % 1, len * (0.6 + 0.4 * env),
                         math.max(1, math.floor((g.rev and 6 or 12) * env)))
             drawn = drawn + 1
           end
@@ -696,6 +735,15 @@ function redraw()
     screen.line(hx + 3, hy + 5)
     screen.stroke()
     screen.aa(0)
+
+    -- the tape splice (buffer seam): a 1px material point riding the
+    -- tape - one revolution per buffer length, paused while frozen
+    if seam_have then
+      local sx, sy = loop_point((HEAD_T - seam_pos) % 1)
+      screen.level(15)
+      screen.rect(util.round(sx), util.round(sy), 1, 1)
+      screen.fill()
+    end
 
     -- footer
     screen.level(4)
