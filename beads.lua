@@ -85,7 +85,11 @@ local function sync_watchdog()
 end
 
 
--- grain envelope preview, mirroring beads' grain_envelope.h
+-- grain envelope preview, mirroring beads' grain_envelope.h exactly:
+-- attack rises (curve t), sustain holds, release FALLS 1->0 with t running
+-- backwards (t = 1 - phase, base t^4) - getting this wrong flips the decay
+local function smoothstep(x) return x * x * (3 - 2 * x) end
+
 local function envelope_point(s, t)
   local sustain = math.max(1 - 3 * s, 0)
   local a = math.max(0, (s - 1 / 3) * 1.5)
@@ -93,18 +97,20 @@ local function envelope_point(s, t)
   local release = (1 - a) * (1 - sustain)
   local norm = a + sustain + release
   if norm <= 0 then return 0 end
-  a, sustain = a / norm, sustain / norm
+  local a_n, su_n, re_n = a / norm, sustain / norm, release / norm
   local smoothness = a < 0.5 and (2 * a) or (2 - 2 * a)
-  if t < a then
-    local x = t / a
-    return x + (x * x * (3 - 2 * x) - x) * smoothness
-  elseif t < a + sustain then
+  if t < a_n then
+    local x = t / math.max(a_n, 0.0001)
+    local base = x
+    return base + (smoothstep(x) - base) * smoothness
+  elseif t < a_n + su_n then
     return 1
   else
-    local x = (t - a - sustain) / math.max(release / norm, 0.0001)
+    local x = (t - a_n - su_n) / math.max(re_n, 0.0001)
     x = math.min(x, 1)
-    local x4 = x * x * x * x
-    return x4 + (x * x * (3 - 2 * x) - x4) * smoothness
+    local tt = 1 - x                -- release time runs backwards
+    local base = tt * tt * tt * tt
+    return base + (smoothstep(tt) - base) * smoothness
   end
 end
 
@@ -124,11 +130,33 @@ local function draw_envelope(x0, y0, w, h, s)
   screen.line_width(1)
 end
 
-local function density_string(d)
+-- grain rate in Hz from density (trigger_generator.cc); 0 in the deadband
+local function density_rate(d)
   if d < 0.48 then
-    return string.format("%d hz", math.floor(130.81 * 2 ^ (-16 * d) + 0.5))
+    return 130.81 * 2 ^ (-16 * d)
   elseif d > 0.52 then
-    return string.format("~%d hz", math.floor(0.5 * 130.81 * 2 ^ (-16 * (1 - d)) + 0.5))
+    return 0.5 * 130.81 * 2 ^ (-16 * (1 - d))
+  end
+  return 0
+end
+
+-- grain duration in seconds from size (granular_player.cc law)
+local function grain_dur_s(s)
+  local sh
+  if s < 1 / 3 then
+    local v = s * 3
+    sh = v * (2 - v)
+  else
+    sh = 1 - 1.5 * (s - 1 / 3)
+  end
+  sh = math.min(1, 1.025 * sh)
+  return 2 ^ (-9 * sh) * 4
+end
+
+local function density_string(d)
+  local r = density_rate(d)
+  if r > 0 then
+    return string.format("%s%d hz", d > 0.52 and "~" or "", math.floor(r + 0.5))
   end
   -- deadband: latched = no grains (manual), unlatched = manual taps
   return params:get("latch") == 1 and "silent" or "tap"
@@ -288,36 +316,72 @@ function redraw()
   header()
 
   if page == 1 then
-    -- tape bar
-    local bx, by, bw, bh = 4, 42, 120, 6
-    bar(bx, by, bw, 1, 1 + math.floor(STATS.reserve * 5))
-    -- grain position marker (time)
-    local tx = bx + params:get("time") * bw
-    screen.level(15)
-    screen.move(tx, by - 2)
-    screen.line(tx, by + bh + 2)
-    screen.stroke()
-    -- write head triangle
-    local wx = bx + STATS.write * bw
-    screen.level(12)
-    screen.move(wx - 2, by + bh + 2)
-    screen.line(wx, by + bh + 6)
-    screen.line(wx + 2, by + bh + 2)
-    screen.close()
-    screen.fill()
     -- values
     screen.level(4)
-    screen.move(0, 24)
+    screen.move(0, 20)
     screen.text("time")
     screen.level(15)
-    screen.move(38, 24)
+    screen.move(38, 20)
     screen.text(string.format("%.2f", params:get("time")))
     screen.level(4)
-    screen.move(64, 24)
+    screen.move(64, 20)
     screen.text("pitch")
     screen.level(15)
-    screen.move(96, 24)
+    screen.move(96, 20)
     screen.text(string.format("%+.1f st", params:get("pitch")))
+
+    local bx, bw = 4, 120
+
+    if STATS.dmode > 0.5 then
+      -- tape/delay mode: repeats marching right from the read position
+      local tx = bx + params:get("time") * bw
+      for i = 0, 5 do
+        local x = tx + i * 5
+        if x > bx + bw then break end
+        screen.level(15 - i * 2)
+        screen.move(x, 38)
+        screen.line(x, 48)
+        screen.stroke()
+      end
+    else
+      -- grain field: count from rate x duration, mark length from the
+      -- duration law, position from time (+ scatter with time amount),
+      -- dim marks = reverse grains (size < 1/3)
+      local size = params:get("size")
+      local rate = density_rate(params:get("density"))
+      local dur = grain_dur_s(size)
+      local n = util.clamp(math.floor(rate * dur + 0.5), 1, 8)
+      local spread = rate > 0 and math.abs(params:get("time_amt")) or 0
+      local len = util.clamp(
+        4 + 34 * (math.log(dur) - math.log(0.008)) /
+        (math.log(4) - math.log(0.008)), 2, 38)
+      local rev = size < 1 / 3
+      local lanes = { 31, 37, 43 }
+      for i = 1, n do
+        local frac = (i * 0.61803398875) % 1
+        local pos = util.clamp(params:get("time") + (frac - 0.5) * spread, 0, 1)
+        local cx = bx + pos * bw
+        local x1 = util.clamp(cx - len / 2, bx, bx + bw - 1)
+        local x2 = util.clamp(cx + len / 2, bx + 1, bx + bw)
+        screen.level(rate > 0 and (rev and 6 or 12) or 4)
+        screen.move(x1, lanes[(i - 1) % 3 + 1])
+        screen.line(x2, lanes[(i - 1) % 3 + 1])
+        screen.stroke()
+      end
+    end
+
+    -- tape band: the recorded buffer, brightness = overwrite reserve,
+    -- live write-head tick (freezes with the tape)
+    local band_y = 51
+    screen.level(1 + math.floor(STATS.reserve * 5))
+    screen.rect(bx, band_y, bw, 2)
+    screen.fill()
+    local wx = bx + STATS.write * bw
+    screen.level(15)
+    screen.move(wx, band_y - 2)
+    screen.line(wx, band_y + 4)
+    screen.stroke()
+
     -- footer
     screen.level(4)
     screen.move(0, 62)
