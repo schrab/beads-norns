@@ -4,16 +4,20 @@
 -- Granular delay / looper - a port of the eurorack module's DSP
 -- (Emilie Gillet, MIT) as a SuperCollider UGen + CroneEngine.
 --
--- E1 page  E2/E3/E4 = the page's three parameters (K1 held = amount layer)
--- K2 freeze   K3 seed (hold K1+K3 = seed latch)
+-- E1 page  E2/E3/E4 = the page's three parameters (no modifier layers)
+-- K2 freeze   K3 seed   K1+K3 seed latch   K1+K2 clock sync
 --
 -- pages:
---   PLAY  E2 time   (alt: time amt)    E3 pitch (alt: pitch amt)  E4 dry/wet
---   GRAIN E2 density (alt: size amt)   E3 size  (alt: shape amt)  E4 shape
---   MIX   E2 feedback   E3 reverb   E4 input gain
---   SETUP E2 media   E3 channels  E4 clock sync (norns bpm -> seed clock)
+--   PLAY   E2 time    E3 pitch         E4 pitch amount
+--   GRAIN  E2 density E3 size          E4 shape
+--   RANDOM E2 time amt   E3 size amt   E4 shape amt   (attenurandomizers)
+--   MIX    E2 feedback   E3 reverb     E4 dry/wet
+--   SETUP  E2 media   E3 channels      E4 input gain
 --
--- clock sync (SETUP E4, needs latch on): delay mode tempo = norns bpm x
+-- amounts (RANDOM page): positive = spray the param toward random per grain
+-- (pitch: +-24 st), negative = peak near the knob value, 0 = off
+--
+-- clock sync (K1+K2, needs latch on): delay mode tempo = norns bpm x
 -- DENSITY subdivision; granular mode = clocked divider (hardware SEED-jack
 -- clocking)
 --
@@ -26,9 +30,9 @@ local beadse = include "lib/beads_engine"
 
 local STATS = { reserve = 1.0, write = 0.0, dmode = 0.0 }
 
-local pages = { "PLAY", "GRAIN", "MIX", "SETUP" }
+local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "SETUP" }
 local page = 1
-local alt = false
+local k1_down = false
 local seed_down = false
 local dirty = true
 local redrawer
@@ -111,9 +115,9 @@ end
 
 local function header()
   -- one-line top bar: page name + state tags left, page dashes right
-  screen.level(alt and 15 or 4)
+  screen.level(4)
   screen.move(0, 8)
-  screen.text(alt and pages[page] .. "+" or pages[page])
+  screen.text(pages[page])
   local tag = ""
   if params:get("freeze") == 1 then tag = tag .. " FRZ" end
   if STATS.dmode > 0.5 then tag = tag .. " TAPE" end
@@ -141,6 +145,23 @@ local function bar(x, y, w, v, level)
   screen.level(level or 10)
   screen.rect(x + 1, y + 1, math.max(0, (w - 2) * v), 3)
   screen.fill()
+end
+
+-- bipolar bar for the amounts: center = 0, left/right = -1/+1
+local function bar_bi(x, y, w, v, level)
+  bar(x, y, w, 0.5, 1)
+  local c = x + w / 2
+  screen.level(level or 10)
+  if v >= 0 then
+    screen.rect(c, y + 1, (w / 2 - 1) * v, 3)
+  else
+    screen.rect(c + (w / 2 - 1) * v, y + 1, -(w / 2 - 1) * v, 3)
+  end
+  screen.fill()
+  screen.level(4)
+  screen.move(c, y - 1)
+  screen.line(c, y + 6)
+  screen.stroke()
 end
 
 function init()
@@ -205,44 +226,26 @@ function enc(n, d)
     dirty = true
     return
   end
-  if n == 4 then
-    -- Fates 4th knob: this page's third parameter
-    local p = { "drywet", "shape", "gain" }
-    if page < 4 then
-      params:delta(p[page], d)
-    elseif d > 0 then
-      params:set("sync", params:get("sync") == 2 and 1 or 2)
-    end
-    dirty = true
-    return
-  end
-  local target
-  if page == 1 then
-    target = (n == 2)
-        and (alt and "time_amt" or "time")
-        or (alt and "pitch_amt" or "pitch")
-  elseif page == 2 then
-    target = (n == 2)
-        and (alt and "size_amt" or "density")
-        or (alt and "shape_amt" or "size")
-  elseif page == 3 then
-    target = (n == 2) and "feedback" or "reverb"
-  else
-    target = (n == 2) and "media" or "mono"
-  end
-  params:delta(target, d)
+  local e2 = { "time", "density", "time_amt", "feedback", "media" }
+  local e3 = { "pitch", "size", "size_amt", "reverb", "mono" }
+  local e4 = { "pitch_amt", "shape", "shape_amt", "drywet", "gain" }
+  local t = n == 2 and e2[page] or (n == 3 and e3[page] or e4[page])
+  params:delta(t, d)
   dirty = true
 end
 
 function key(n, z)
   if n == 1 then
-    alt = z == 1
-    dirty = true
+    k1_down = z == 1
   elseif n == 2 and z == 1 then
-    params:set("freeze", params:get("freeze") == 1 and 0 or 1)
+    if k1_down then
+      params:set("sync", params:get("sync") == 2 and 1 or 2)
+    else
+      params:set("freeze", params:get("freeze") == 1 and 0 or 1)
+    end
     dirty = true
   elseif n == 3 then
-    if alt and z == 1 then
+    if k1_down and z == 1 then
       params:set("latch", params:get("latch") == 1 and 0 or 1)
     else
       seed_down = z == 1
@@ -294,7 +297,7 @@ function redraw()
     screen.move(0, 62)
     screen.text(beadse.media_name(params:get("media")) .. "  " ..
       density_string(params:get("density")) ..
-      "  dw " .. string.format("%.2f", params:get("drywet")))
+      "  p.amt " .. string.format("%+.2f", params:get("pitch_amt")))
   elseif page == 2 then
     draw_envelope(4, 26, 119, 26, params:get("shape"))
     screen.level(4)
@@ -311,17 +314,32 @@ function redraw()
     screen.text(string.format("%.2f", params:get("size")))
     screen.level(4)
     screen.move(0, 62)
-    if alt then
-      screen.text("alt e2 size amt  alt e3 shape amt")
-    else
-      screen.text("envelope - E4 shape " ..
-        string.format("%.2f", params:get("shape")))
-    end
+    screen.text("envelope - E4 shape " ..
+      string.format("%.2f", params:get("shape")) ..
+      (params:get("size") < 1 / 3 and "  rev" or
+        (params:get("size") > 0.99 and "  delay" or "")))
   elseif page == 3 then
+    -- RANDOM: the four attenurandomizers (pitch amt lives on PLAY E4)
+    local rows = {
+      { "E2 time amt", params:get("time_amt") },
+      { "E3 size amt", params:get("size_amt") },
+      { "E4 shape amt", params:get("shape_amt") },
+    }
+    for i, r in ipairs(rows) do
+      local y = 26 + (i - 1) * 12
+      screen.level(4)
+      screen.move(0, y)
+      screen.text(r[1])
+      bar_bi(64, y - 5, 60, (r[2] + 1) / 2, 10)
+    end
+    screen.level(4)
+    screen.move(0, 62)
+    screen.text("0=off  +=random  -=peaked (per grain)")
+  elseif page == 4 then
     local rows = {
       { "E2 feedback", params:get("feedback") },
       { "E3 reverb", params:get("reverb") },
-      { "E4 in gain", (params:get("gain") - 0.25) / 3.75 },
+      { "E4 dry/wet", params:get("drywet") },
     }
     for i, r in ipairs(rows) do
       local y = 26 + (i - 1) * 12
@@ -332,14 +350,18 @@ function redraw()
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("K1 hold = alt layer on PLAY/GRAIN")
+    if params:get("sync") == 2 then
+      screen.text("delay tempo = " ..
+        string.format("%d", math.floor(clock.get_bpm() + 0.5)) ..
+        " bpm x density subdivision")
+    else
+      screen.text("K1+K2 clock sync on")
+    end
   else
     local rows = {
       { "E2 media", beadse.media_name(params:get("media")) },
       { "E3 chans", params:get("mono") == 2 and "mono" or "stereo" },
-      { "E4 sync", params:get("sync") == 2
-          and ("bpm " .. string.format("%d", math.floor(clock.get_bpm() + 0.5)))
-          or "off" },
+      { "E4 in gain", string.format("%.2fx", params:get("gain")) },
     }
     for i, r in ipairs(rows) do
       local y = 26 + (i - 1) * 12
@@ -347,12 +369,16 @@ function redraw()
       screen.move(0, y)
       screen.text(r[1])
       screen.level(15)
-      screen.move(46, y)
+      screen.move(52, y)
       screen.text(r[2])
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("K2 freeze  K3 seed  K1+K3 latch")
+    screen.text("K1+K2 sync " ..
+      (params:get("sync") == 2
+        and (string.format("%d", math.floor(clock.get_bpm() + 0.5)) .. "bpm")
+        or "off") ..
+      "  K1+K3 latch " .. (params:get("latch") == 1 and "on" or "off"))
   end
 
   screen.update()
