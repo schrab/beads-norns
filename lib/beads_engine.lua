@@ -13,7 +13,7 @@ local cs = {
   unit = controlspec.new(0, 1, "lin", 0.005, 0.5, ""),
   amt = controlspec.new(-1, 1, "lin", 0.02, 0, ""),
   pitch = controlspec.new(-24, 24, "lin", 0.05, 0, "st"),
-  gain = controlspec.new(0.25, 4, "lin", 0.02, 1, ""),
+  gain = controlspec.new(0, 255, "lin", 1, 0, ""),
 }
 
 local function ri(x) return math.floor(x + 0.5) end
@@ -115,9 +115,15 @@ function beadse.add_params()
     action = function(x) engine.reverb(x) end,
   }
   params:add {
+    -- hardware GAIN setting: 0 = auto-gain (knob fully CCW), 1..255 = the
+    -- manual law (s/255)^4 scaled 1..40x, with per-media soft clipping
     type = "control", id = "gain", name = "input gain",
     controlspec = cs.gain,
-    formatter = function(param) return string.format("%.2fx", param:get()) end,
+    formatter = function(param)
+      local s = param:get()
+      if s < 1 then return "auto" end
+      return string.format("%.1fx", 1 + 39 * (s / 255) ^ 4)
+    end,
     action = function(x) engine.gain(x) end,
   }
 

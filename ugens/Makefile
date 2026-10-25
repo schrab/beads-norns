@@ -9,7 +9,8 @@
 # scsynth shipped by norns.
 
 CXX      ?= g++
-CXXFLAGS := -shared -fPIC -O2 -std=gnu++14 -DTEST -Wno-unknown-pragmas \
+CXXFLAGS := -shared -fPIC -O3 -funroll-loops -std=gnu++14 -DTEST \
+            -Wno-unknown-pragmas \
             -Isc-plugin-headers -Ieurorack-beads
 
 SRCS := beads_ugen.cpp \

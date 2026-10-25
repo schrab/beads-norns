@@ -72,16 +72,40 @@ All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and the
 ## Differences from the hardware module
 
 - No CV inputs; the AMOUNT knobs work without CV (internal randomization,
-  like an unpatched module).
+  like an unpatched module). The AMOUNT knobs pass through the hardware's
+  attenuverter law (center dead zone, expanding curve), so small amounts do
+  nothing exactly like on the module.
 - Pitch is a continuous ±24 st param (the panel's virtual detents aren't
   emulated).
 - The wavetable "no input" synth mode, flash buffer autosave, output-gate
   mode and assignable-CV routing are not ported.
 - MEDIA / channel changes are ignored while frozen (same as firmware).
 
+## Fidelity notes
+
+- **Sample rates.** On hardware the codec is re-clocked per media and the
+  engines run at 24 kHz (scorched tape), 32 kHz (cold digital) and 48 kHz
+  (digital; sunny tape self-decimates 2:1 behind 48 kHz frames). norns'
+  scsynth runs at a fixed 48 kHz, so scorched/cold are resampled with the
+  same stmlib polyphase converters the firmware uses internally (2:1, and
+  3:2 as up-2/down-3), clocked in aligned superblocks. This costs ~1.5 ms
+  of extra latency on those two media only; loop lengths now match the
+  hardware exactly (16 / 10.7 / 8 / 4 s).
+- **Input stage.** The hardware's `GainControl` stage is ported: input
+  gain 0 = auto-gain (the GAIN knob fully CCW), 1–255 = the hardware
+  manual law (s/255)⁴ over 1–40×, with the per-media soft clipping
+  (scorched tape always soft-clips, sunny tape dynamically). Turning the
+  gain up drives the tape engines exactly like overdriving the module's
+  inputs.
+- **Seed latch defaults ON** at script start (the module boots unlatched;
+  unlatched + density in the deadband is silent, which reads as "broken"
+  on norns). Everything else about latch/clock semantics follows the
+  firmware: LOCKED + external clock = clocked divider / synced delay
+  tempo.
+
 ## Credits & licenses
 
 - Beads DSP + stmlib: © Emilie Gillet, MIT license. Vendored at eurorack
-  `f4cfa76` / stmlib `d18def8` under `ugens/eurorack-beads/`.
+  `f4cfa76` (stmlib submodule pin `e3bd7c9`) under `ugens/eurorack-beads/`.
 - UGen wrapper follows v7b1/mi-UGens (© Volker Böhm, GPL-3).
 - Everything else in this repo: GPL-3.
