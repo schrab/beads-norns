@@ -70,7 +70,6 @@ struct BeadsUGen : public Unit {
   bool      mono_;
   int       media_;
   int       transition_;          // 250 ms mute after media/mono change
-  stmlib::GateFlags previous_seed_flag_;
 
   // mirror of the granular<->delay hysteresis, for the UI only
   float     delay_mode_transition_;
@@ -80,7 +79,6 @@ struct BeadsUGen : public Unit {
   beads::FloatFrame in_[kMaxChunk];
   beads::FloatFrame out_[kMaxChunk];
   bool       freeze_buf_[kMaxChunk];
-  stmlib::GateFlags seed_buf_[kMaxChunk];
 };
 
 static void BeadsUGen_Ctor(BeadsUGen *unit);
@@ -132,7 +130,6 @@ static void BeadsUGen_Ctor(BeadsUGen *unit) {
   unit->mono_ = false;
   unit->media_ = beads::Processor::MEDIA_DIGITAL;   // Processor::Init configured this
   unit->transition_ = 0;
-  unit->previous_seed_flag_ = stmlib::GATE_FLAG_LOW;
   unit->delay_mode_transition_ = 0.0f;
   unit->delay_mode_ = false;
 
@@ -259,11 +256,14 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
       unit->freeze_buf_[i] = freeze_now;
     }
 
-    // seed gate flags from the held state
-    for (int i = 0; i < n; ++i) {
-      unit->previous_seed_flag_ = unit->seed_buf_[i] =
-          stmlib::ExtractGateFlags(unit->previous_seed_flag_, seed_now);
-    }
+    // NOTE on the seed input: norns has no SEED jack, so we always pass
+    // NULL - exactly like the firmware with an unpatched jack. The button
+    // state carries everything: ON/OFF gates grains (unlatched), LOCKED
+    // free-runs at density, and button taps reach the delay clock via the
+    // seed-button state transition (DelayController derives taps from
+    // OFF->ON, it does not need the gate array). Passing a gate array in
+    // LOCKED mode would engage RenderDivider - treating K3 as an external
+    // clock - which made latched mode behave like gating.
 
     if (unit->transition_ > 0) {
       for (int i = 0; i < n; ++i) {
@@ -279,7 +279,7 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
 
       unit->processor->Process(
           seed_state,
-          unit->seed_buf_,
+          nullptr,
           unit->freeze_buf_,
           d, p, m,
           unit->in_,

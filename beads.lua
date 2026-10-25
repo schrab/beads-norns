@@ -77,7 +77,8 @@ local function density_string(d)
   elseif d > 0.52 then
     return string.format("~%d hz", math.floor(0.5 * 130.81 * 2 ^ (-16 * (1 - d)) + 0.5))
   end
-  return "tap/gate"
+  -- deadband: latched = no grains (manual), unlatched = manual taps
+  return params:get("latch") == 1 and "silent" or "tap"
 end
 
 local function header()
