@@ -282,6 +282,13 @@ local function density_string(d)
   return params:get("latch") == 1 and "silent" or "tap"
 end
 
+-- exact expected concurrent grain count (rate x duration), printed in
+-- the loop - no ">12" fallback, the number is always real
+local function n_exp_grains(rate, dur)
+  local n = rate > 0 and math.floor(rate * dur + 0.5) or 0
+  return n .. " grains"
+end
+
 -- granulator particle sim for the PLAY page: mirrors the DSP's per-grain
 -- laws exactly. Each spawn re-rolls time/size/pitch/shape through the
 -- same per-trigger randomization as RandomizedParameter (amount > 0:
@@ -309,7 +316,7 @@ local function randomized_value(base, amt, range, clamp01)
 end
 
 local function spawn_grain()
-  if #grains >= 12 then return end
+  if #grains >= 16 then return end
   local size_k = randomized_value(params:get("size"), params:get("size_amt"), 1, true)
   local pitch_st = randomized_value(params:get("pitch"), params:get("pitch_amt"), 24, false)
   grains[#grains + 1] = {
@@ -618,6 +625,34 @@ function redraw()
 
     local rate = density_rate(params:get("density"))
     local dur = grain_dur_s(params:get("size"))
+    local now = os.clock()
+    local buf_s = ({ 16, 10.7, 8, 4 })[params:get("media")]
+        * (params:get("mono") == 2 and 2 or 1)
+
+    -- transport reels: a 6-spoke hub in each end cap, rotating with the
+    -- tape - rim speed equals tape surface speed (loop perimeter per
+    -- buf_s seconds), counterclockwise (the direction tape recedes from
+    -- the static head)
+    local tape_rot = (now * (T / buf_s) / 7) % (2 * math.pi)
+    local function draw_reel(cx0, cy0)
+      local rr = 7
+      screen.level(4)
+      screen.move(cx0 + rr, cy0)
+      for i = 1, 20 do
+        local a = i / 20 * 2 * math.pi
+        screen.line(cx0 + rr * math.cos(a), cy0 + rr * math.sin(a))
+      end
+      screen.stroke()
+      screen.level(9)
+      for k = 0, 5 do
+        local a = k * math.pi / 3 - tape_rot
+        screen.move(cx0 + 2 * math.cos(a), cy0 + 2 * math.sin(a))
+        screen.line(cx0 + (rr - 1) * math.cos(a), cy0 + (rr - 1) * math.sin(a))
+      end
+      screen.stroke()
+    end
+    draw_reel(bx + r, cy)
+    draw_reel(bx + bw - r, cy)
 
     if STATS.dmode > 0.5 then
       -- tape mode: read position with regen echoes trailing behind
@@ -631,10 +666,6 @@ function redraw()
       -- fractions per second), length = the grain's own duration
       -- (log-mapped 8ms..4s), brightness = the grain's envelope (shape),
       -- dim = reverse. The expected concurrent count is rate x duration.
-      local n_exp = rate > 0 and math.floor(rate * dur + 0.5) or 0
-      local buf_s = ({ 16, 10.7, 8, 4 })[params:get("media")]
-          * (params:get("mono") == 2 and 2 or 1)
-      local now = os.clock()
       local drawn = 0
       for _, g in ipairs(grains) do
         local age = now - g.born
@@ -652,10 +683,10 @@ function redraw()
           end
         end
       end
-      -- expected concurrent count, centered in the loop
+      -- exact expected concurrent count, centered in the loop
       screen.level(drawn > 0 and 15 or 4)
       screen.move(bx + bw / 2, cy + 3)
-      screen.text_center(n_exp > 12 and ">12" or tostring(n_exp))
+      screen.text_center(n_exp_grains(rate, dur))
     end
 
     -- the static record head: a ^ caret sitting on the loop

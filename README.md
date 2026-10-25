@@ -74,11 +74,14 @@ point drifts through the loop at `(playback_ratio − 1)` loop-fractions per
 second (pitch 0 = fixed reading point, pitch up slides toward older tape),
 arc length maps the grain's own duration (log-mapped 8 ms–4 s), brightness
 follows the grain's envelope (shape), dim = reverse, and grains die at the
-end of their life. The expected concurrent count (rate × duration) is
-printed inside the loop; grains only appear when the gate is open (latch
-on, or K3 held), and the density deadband taps spawn a grain per press.
-Media changes clear the view (the buffer resets). In delay mode (SIZE max)
-the display shows the static read position with regen echoes.
+end of their life. The exact expected concurrent count (rate × duration,
+e.g. "16 grains") is printed inside the loop. Two 6-spoke reels sit in the
+end caps and rotate with the tape — rim speed equals tape surface speed,
+so they turn once per loop at the reel's radius. Grains only appear when
+the gate is open (latch on, or K3 held), the density deadband taps spawn a
+grain per press, and media changes clear the view (the buffer resets). In
+delay mode (SIZE max) the display shows the static read position with
+regen echoes.
 
 Pages: **PLAY** (time, pitch, pitch amount — tape-loop view), **GRAIN**
 (density, size, shape — grain envelope preview), **RANDOM** (the
