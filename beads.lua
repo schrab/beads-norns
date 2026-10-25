@@ -43,6 +43,12 @@ local seed_down = false
 local dirty = true
 local redrawer
 
+-- granulator particle sim state (declared before the sync loop, whose
+-- clock closure feeds pending_pulses)
+local grains = {}
+local spawn_acc = 0
+local pending_pulses = 0
+
 -- MIDI note pitch (PITCH CV jack equivalent)
 local midi_stack = {}   -- held notes, most recent last
 local last_note = nil   -- persists after release: a CV keyboard holds voltage
@@ -178,6 +184,7 @@ local function start_sync()
         -- engine commands can throw mid-(re)load; never let that kill
         -- the pulse loop (the watchdog would flap-restart it)
         pcall(function() engine.clock() end)
+        pending_pulses = pending_pulses + 1
         sync_last = os.clock()
       end
     end)
@@ -275,6 +282,78 @@ local function density_string(d)
   return params:get("latch") == 1 and "silent" or "tap"
 end
 
+-- granulator particle sim for the PLAY page: mirrors the DSP's per-grain
+-- laws exactly. Each spawn re-rolls time/size/pitch/shape through the
+-- same per-trigger randomization as RandomizedParameter (amount > 0:
+-- crossfade toward uniform, amount < 0: peaked near the knob), the read
+-- point drifts through the loop at (playback_ratio - 1) loop-fractions
+-- per second (pitch 0 = fixed reading point, pitch up = slides toward
+-- older tape), and brightness follows the grain's own envelope (shape).
+-- The record head stays static - tape frame.
+-- (state vars declared at the top of the file)
+
+local function randomized_value(base, amt, range, clamp01)
+  if amt > 0 then
+    if clamp01 then
+      return util.clamp(base + (math.random() - base) * amt, 0, 1)
+    end
+    return base + (2 * math.random() - 1) * range * amt
+  elseif amt < 0 then
+    local blend = math.min(1, amt * math.random() * -3)
+    if clamp01 then
+      return util.clamp(base + (math.random() - base) * blend, 0, 1)
+    end
+    return base + (2 * math.random() - 1) * range * blend
+  end
+  return base
+end
+
+local function spawn_grain()
+  if #grains >= 12 then return end
+  local size_k = randomized_value(params:get("size"), params:get("size_amt"), 1, true)
+  local pitch_st = randomized_value(params:get("pitch"), params:get("pitch_amt"), 24, false)
+  grains[#grains + 1] = {
+    born = os.clock(),
+    pos = randomized_value(params:get("time"), params:get("time_amt"), 1, true),
+    dur = grain_dur_s(size_k),
+    ratio = 2 ^ (pitch_st / 12),
+    rev = size_k < 1 / 3,
+    shape = randomized_value(params:get("shape"), params:get("shape_amt"), 1, true),
+  }
+end
+
+local function grain_sim_tick(dt)
+  local rate = density_rate(params:get("density"))
+  if STATS.dmode < 0.5 and rate > 0
+      and (params:get("latch") == 1 or seed_down) then
+    if params:get("sync") == 2 and params:get("latch") == 1 then
+      -- clocked divider: one trigger opportunity per received beat,
+      -- gated by the density probability above the deadband
+      while pending_pulses > 0 do
+        pending_pulses = pending_pulses - 1
+        local d = params:get("density")
+        if d > 0.52 then
+          local p = (d - 0.52) * 2.15
+          if math.random() < p * p then spawn_grain() end
+        else
+          spawn_grain()
+        end
+      end
+    else
+      spawn_acc = spawn_acc + rate * dt
+      while spawn_acc >= 1 do
+        spawn_acc = spawn_acc - 1
+        spawn_grain()
+      end
+      if spawn_acc > 2 then spawn_acc = 2 end
+    end
+  end
+  local now = os.clock()
+  for i = #grains, 1, -1 do
+    if now - grains[i].born > grains[i].dur then table.remove(grains, i) end
+  end
+end
+
 local function header()
   -- one-line top bar: page name + state tags left, page dashes right
   screen.level(4)
@@ -362,16 +441,29 @@ function init()
   beadse.on_latch = function() start_sync() dirty = true end
   beadse.on_midi_pitch = function() push_pitch_cv() dirty = true end
   beadse.on_midi_cv = function() push_pitch_cv() dirty = true end
+  beadse.on_media = function()
+    -- buffer reset (media/mono Configure): no grains survive
+    grains = {}
+    spawn_acc = 0
+    pending_pulses = 0
+    dirty = true
+  end
   midi_connect_all()
   start_sync()
 
   redrawer = clock.run(function()
     local ticks = 0
+    local last_tick = os.clock()
     while true do
       clock.sleep(1 / 15)
       ticks = ticks + 1
       if ticks % 30 == 0 then midi_connect_all() end
       sync_watchdog()
+      local now = os.clock()
+      grain_sim_tick(now - last_tick)
+      last_tick = now
+      -- PLAY page is live: grains spawn, drift and die continuously
+      if page == 1 then dirty = true end
       if dirty then
         dirty = false
         -- keep the loop alive through a bad frame (e.g. clock mid-change)
@@ -434,6 +526,10 @@ function key(n, z)
   elseif n == 3 then
     seed_down = z == 1
     engine.seed(z)
+    -- deadband manual tap = one grain trigger
+    if z == 1 and density_rate(params:get("density")) == 0 then
+      spawn_grain()
+    end
     dirty = true
   end
 end
@@ -520,10 +616,8 @@ function redraw()
       screen.line_width(1)
     end
 
-    local size = params:get("size")
     local rate = density_rate(params:get("density"))
-    local dur = grain_dur_s(size)
-    local rev = size < 1 / 3
+    local dur = grain_dur_s(params:get("size"))
 
     if STATS.dmode > 0.5 then
       -- tape mode: read position with regen echoes trailing behind
@@ -532,31 +626,34 @@ function redraw()
         path_stroke(base + i * 0.09, 5, 15 - i * 4)
       end
     else
-      -- grains on the loop: count = rate x duration, arc length =
-      -- duration law. Successive grains are one trigger interval older,
-      -- so they trail behind the read position at their real age
-      -- spacing (k / rate seconds of tape) and never stack; time amount
-      -- adds scatter on top; dim = reverse
+      -- live grains: positions/drift are exact (spawn offset = time with
+      -- per-grain randomization, read point drifts at (ratio - 1) loop
+      -- fractions per second), length = the grain's own duration
+      -- (log-mapped 8ms..4s), brightness = the grain's envelope (shape),
+      -- dim = reverse. The expected concurrent count is rate x duration.
       local n_exp = rate > 0 and math.floor(rate * dur + 0.5) or 0
-      local n = math.min(n_exp, 12)
-      local spread = math.abs(params:get("time_amt"))
       local buf_s = ({ 16, 10.7, 8, 4 })[params:get("media")]
-      local len = util.clamp(
-        3 + 11 * (math.log(dur) - math.log(0.008)) /
-        (math.log(4) - math.log(0.008)), 3, 14)
-      for k = 0, n - 1 do
-        local frac = ((k + 1) * 0.61803398875) % 1
-        local pos = params:get("time")
-            + (rate > 0 and (k / rate) / buf_s or 0)
-            + (frac - 0.5) * spread
-        path_stroke((HEAD_T - pos) % 1, len, rev and 6 or 12)
+          * (params:get("mono") == 2 and 2 or 1)
+      local now = os.clock()
+      local drawn = 0
+      for _, g in ipairs(grains) do
+        local age = now - g.born
+        local t = age / g.dur
+        if t < 1 then
+          local env = envelope_point(g.shape, t)
+          if env > 0.02 then
+            local pos = g.pos + (g.ratio - 1) * age / buf_s
+            local len = util.clamp(
+              3 + 11 * (math.log(g.dur) - math.log(0.008)) /
+              (math.log(4) - math.log(0.008)), 3, 14)
+            path_stroke((HEAD_T - pos) % 1, len * (0.6 + 0.4 * env),
+                        math.max(1, math.floor((g.rev and 6 or 12) * env)))
+            drawn = drawn + 1
+          end
+        end
       end
-      if rate <= 0 and params:get("latch") == 0 then
-        -- deadband, gated: one manual grain at the time position
-        path_stroke((HEAD_T - params:get("time")) % 1, 5, 6)
-      end
-      -- exact count, centered in the loop
-      screen.level(n > 0 and 15 or 4)
+      -- expected concurrent count, centered in the loop
+      screen.level(drawn > 0 and 15 or 4)
       screen.move(bx + bw / 2, cy + 3)
       screen.text_center(n_exp > 12 and ">12" or tostring(n_exp))
     end
@@ -697,7 +794,7 @@ function redraw()
       screen.move(0, y)
       screen.text(r[1])
       screen.level(15)
-      screen.move(52, y)
+      screen.move(68, y)
       screen.text(r[2])
     end
     screen.level(4)

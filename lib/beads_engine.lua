@@ -139,12 +139,20 @@ function beadse.add_params()
   params:add {
     type = "option", id = "media", name = "media",
     options = MEDIA, default = 4,
-    action = function(x) engine.media(x - 1) end,
+    action = function(x)
+      engine.media(x - 1)
+      -- media switches reset the delay line (Configure -> Reset), so any
+      -- drawn grains are gone; let the script clear its particle sim
+      if beadse.on_media then beadse.on_media(x) end
+    end,
   }
   params:add {
     type = "option", id = "mono", name = "channels",
     options = { "stereo", "mono" }, default = 1,
-    action = function(x) engine.mono(x - 1) end,
+    action = function(x)
+      engine.mono(x - 1)
+      if beadse.on_media then beadse.on_media(x) end
+    end,
   }
   params:add {
     type = "binary", id = "freeze", name = "freeze",

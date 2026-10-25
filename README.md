@@ -65,6 +65,21 @@ the restart (or re-selecting the script), but no rebuild.
 
 K1 is left untouched — it is the norns system menu key.
 
+**PLAY page is a live view of the granulator** (the record head stays
+fixed — tape frame): every grain is drawn as a sub-arc of the loop at its
+true read position, and they move. Positions and motion follow the DSP's
+per-grain laws: each spawn re-rolls time/size/pitch/shape through the same
+per-trigger randomization as the module's attenurandomizers, the read
+point drifts through the loop at `(playback_ratio − 1)` loop-fractions per
+second (pitch 0 = fixed reading point, pitch up slides toward older tape),
+arc length maps the grain's own duration (log-mapped 8 ms–4 s), brightness
+follows the grain's envelope (shape), dim = reverse, and grains die at the
+end of their life. The expected concurrent count (rate × duration) is
+printed inside the loop; grains only appear when the gate is open (latch
+on, or K3 held), and the density deadband taps spawn a grain per press.
+Media changes clear the view (the buffer resets). In delay mode (SIZE max)
+the display shows the static read position with regen echoes.
+
 Pages: **PLAY** (time, pitch, pitch amount — tape-loop view), **GRAIN**
 (density, size, shape — grain envelope preview), **RANDOM** (the
 attenurandomizers: time/size/shape amounts, bipolar bars), **MIX**
