@@ -19,7 +19,8 @@ SRCS := beads_ugen.cpp \
 	eurorack-beads/beads/dsp/delay_clock.cc \
 	eurorack-beads/beads/dsp/mu_law.cc \
 	eurorack-beads/beads/resources.cc \
-	eurorack-beads/stmlib/utils/random.cc
+	eurorack-beads/stmlib/utils/random.cc \
+	eurorack-beads/stmlib/dsp/units.cc
 
 OBJS := $(SRCS:.cc=.o)
 OBJS := $(OBJS:.cpp=.o)
