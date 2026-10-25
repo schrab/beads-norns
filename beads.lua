@@ -647,7 +647,8 @@ function redraw()
     screen.text(string.format("%+.1f st", params:get("pitch")))
 
     local bx, bw = 4, 120
-    local cy, r = 42, 12   -- loop spans y30..54 (grown one line taller)
+    local cy, r = 37, 12   -- loop centered in the band between the values
+                           -- row and the footer
     local L = bw - 2 * r
     local arc_len = math.pi * r
     local T = 2 * L + 2 * arc_len        -- loop perimeter
