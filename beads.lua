@@ -629,11 +629,10 @@ function redraw()
     local buf_s = ({ 16, 10.7, 8, 4 })[params:get("media")]
         * (params:get("mono") == 2 and 2 or 1)
 
-    -- transport reels: a 6-spoke hub in each end cap, rotating with the
-    -- tape - rim speed equals tape surface speed (loop perimeter per
-    -- buf_s seconds), counterclockwise (the direction tape recedes from
-    -- the static head)
-    local tape_rot = (now * (T / buf_s) / 7) % (2 * math.pi)
+    -- transport reels: a 6-notch hub in each end cap, one revolution per
+    -- loop pass (2pi / buf_s), counterclockwise - the direction tape
+    -- recedes from the static head
+    local tape_rot = (now * (2 * math.pi / buf_s)) % (2 * math.pi)
     local function draw_reel(cx0, cy0)
       local rr = 7
       screen.level(4)
@@ -646,8 +645,8 @@ function redraw()
       screen.level(9)
       for k = 0, 5 do
         local a = k * math.pi / 3 - tape_rot
-        screen.move(cx0 + 2 * math.cos(a), cy0 + 2 * math.sin(a))
-        screen.line(cx0 + (rr - 1) * math.cos(a), cy0 + (rr - 1) * math.sin(a))
+        screen.move(cx0 + (rr - 2.5) * math.cos(a), cy0 + (rr - 2.5) * math.sin(a))
+        screen.line(cx0 + (rr - 0.5) * math.cos(a), cy0 + (rr - 0.5) * math.sin(a))
       end
       screen.stroke()
     end
