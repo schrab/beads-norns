@@ -33,11 +33,46 @@ local STATS = { reserve = 1.0, write = 0.0, dmode = 0.0 }
 local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "SETUP" }
 local page = 1
 local k1_down = false
+local k1_down_at = 0
+local k1_combo = false   -- did K2/K3 get pressed while K1 held?
 local seed_down = false
 local dirty = true
 local redrawer
 
 local W, H = 128, 64
+
+-- clocked-mode subdivisions: in clocked delay/granular the DENSITY knob
+-- walks the DSP's ratio table (1/16..1/1 below center, beat multiples
+-- above). These targets address its slots directly; the MIX page exposes
+-- them as a setting while sync is on (K1 tap to cycle).
+local SYNC_DIVS = {
+  { "1/16", 0.025 }, { "1/8", 0.125 }, { "1/4", 0.225 }, { "1/2", 0.35 },
+  { "1", 0.46 },
+  { "x2", 0.60 }, { "x3", 0.65 }, { "x4", 0.70 }, { "x6", 0.75 },
+  { "x8", 0.80 }, { "x12", 0.90 }, { "x16", 0.97 },
+}
+
+local function sync_div_label()
+  local d = params:get("density")
+  local best, bi = 9, 1
+  for i, t in ipairs(SYNC_DIVS) do
+    local dist = math.abs(d - t[2])
+    if dist < best then best, bi = dist, i end
+  end
+  return SYNC_DIVS[bi][1]
+end
+
+local function sync_div_step(dir)
+  local d = params:get("density")
+  local bi = 1
+  local best = 9
+  for i, t in ipairs(SYNC_DIVS) do
+    local dist = math.abs(d - t[2])
+    if dist < best then best, bi = dist, i end
+  end
+  bi = util.clamp(bi + dir, 1, #SYNC_DIVS)
+  params:set("density", SYNC_DIVS[bi][2])
+end
 
 -- clock sync: one engine seed pulse per norns-system beat engages the DSP's
 -- clocked paths (delay tempo = beat x density subdivision; granular divider)
@@ -297,8 +332,20 @@ end
 function key(n, z)
   if n == 1 then
     k1_down = z == 1
+    if z == 1 then
+      k1_down_at = util.time()
+      k1_combo = false
+    elseif not k1_combo
+        and util.time() - k1_down_at < 0.35 then
+      -- K1 tap: on MIX with sync on, cycle the clocked subdivision
+      if page == 4 and params:get("sync") == 2 then
+        sync_div_step(1)
+      end
+      dirty = true
+    end
   elseif n == 2 and z == 1 then
     if k1_down then
+      k1_combo = true
       params:set("sync", params:get("sync") == 2 and 1 or 2)
     else
       params:set("freeze", params:get("freeze") == 1 and 0 or 1)
@@ -306,6 +353,7 @@ function key(n, z)
     dirty = true
   elseif n == 3 then
     if k1_down and z == 1 then
+      k1_combo = true
       params:set("latch", params:get("latch") == 1 and 0 or 1)
     else
       seed_down = z == 1
@@ -438,12 +486,12 @@ function redraw()
       screen.text_center(n_exp > 12 and ">12" or tostring(n_exp))
     end
 
-    -- the static record head: a ^ caret with its apex touching the loop
+    -- the static record head: a ^ caret sitting on the loop
     local hx, hy = loop_point(HEAD_T)
     screen.level(15)
-    screen.move(hx - 3, hy + 3)
-    screen.line(hx, hy - 1)
-    screen.line(hx + 3, hy + 3)
+    screen.move(hx - 3, hy + 5)
+    screen.line(hx, hy + 1)
+    screen.line(hx + 3, hy + 5)
     screen.stroke()
     screen.aa(0)
 
@@ -496,21 +544,31 @@ function redraw()
       { "E3 reverb", params:get("rvb") },
       { "E4 dry/wet", params:get("drywet") },
     }
+    if params:get("sync") == 2 then
+      -- clocked: subdivision setting (K1 tap cycles the DSP ratio table)
+      rows[#rows + 1] = { "K1 sync div", sync_div_label(), true }
+    end
     for i, r in ipairs(rows) do
-      local y = 26 + (i - 1) * 12
+      local y = 24 + (i - 1) * 10
       screen.level(4)
       screen.move(0, y)
       screen.text(r[1])
-      bar(58, y - 5, 66, r[2], 10)
+      if r[3] then
+        screen.level(15)
+        screen.move(70, y)
+        screen.text(r[2])
+      else
+        bar(58, y - 5, 66, r[2], 10)
+      end
     end
     screen.level(4)
     screen.move(0, 62)
     if params:get("sync") == 2 then
       screen.text("delay tempo = " ..
         string.format("%d", math.floor(safe_bpm() + 0.5)) ..
-        " bpm x density subdivision")
+        " bpm x " .. sync_div_label())
     else
-      screen.text("K1+K2 clock sync on")
+      screen.text("K1+K2 clock sync")
     end
   else
     local rows = {
