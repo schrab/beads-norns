@@ -14,6 +14,18 @@ v7b1's [mi-UGens](https://github.com/v7b1/mi-UGens) used by
 against eurorack `f4cfa76` / stmlib `e3bd7c9`); all adaptation to norns lives
 in the wrapper.
 
+| | |
+|---|---|
+| ![](screenshots/play.png) | ![](screenshots/grain.png) |
+| **PLAY** — live view of every grain on the loop | **GRAIN** — density / size / shape |
+| ![](screenshots/random.png) | ![](screenshots/clock.png) |
+| **RANDOM** — the attenurandomizers | **CLOCK** — sync to norns BPM |
+| ![](screenshots/mix.png) | ![](screenshots/synth.png) |
+| **MIX** — feedback / reverb / dry-wet | **SYNTH** — wavetable synth mode |
+
+(SETUP and MIDI pages omitted; all eight are in
+[`screenshots/`](screenshots/).)
+
 ## Layout
 
 ```
