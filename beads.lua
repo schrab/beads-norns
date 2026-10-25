@@ -301,6 +301,14 @@ local function buf_seconds()
       * (params:get("mono") == 2 and 2 or 1)
 end
 
+-- head safety zone as a loop fraction: the DSP starts grains at
+-- time * (max_delay - 514) + 257 frames, so time 0 sits 257 frames
+-- behind the head instead of exactly on it
+local function head_safety()
+  local n = ({ 384000, 256000, 256000, 192000 })[params:get("media")]
+  return 257 / n
+end
+
 -- granulator particle sim for the PLAY page: mirrors the DSP's per-grain
 -- laws exactly. Each spawn re-rolls time/size/pitch/shape through the
 -- same per-trigger randomization as RandomizedParameter (amount > 0:
@@ -346,6 +354,8 @@ local function spawn_grain()
     dur = math.min(dur, buf_s / math.abs(c))
   end
   local a0 = randomized_value(params:get("time"), params:get("time_amt"), 1, true)
+  local s = head_safety()
+  a0 = s + a0 * (1 - 2 * s)
   if c > 0 then
     a0 = math.max(a0, c * dur / buf_s)
   elseif c < 0 then
@@ -396,7 +406,9 @@ local function grain_sim_tick(dt, buf_s, frozen)
     local g = grains[i]
     local age = now - g.born
     local stylus = g.anchor + (g.rev and g.ratio or -g.ratio) * age / buf_s
-    if age > g.dur or stylus < 0 or stylus > 1 then
+    -- epsilon absorbs tick-timing jitter at the head edge (the safety
+    -- zone keeps legit grains ~0.001 off the head)
+    if age > g.dur or stylus < -0.005 or stylus > 1.005 then
       table.remove(grains, i)
     end
   end
@@ -424,14 +436,13 @@ local function header()
     screen.move(32, 8)
     screen.text(tag)
   end
-  -- dashes anchored to the right edge so any page count fits
+  -- square page dots anchored to the right edge so any page count fits
+  -- (rect fill - immune to the round line caps the grain strokes need)
   local x0 = 125 - #pages * 5
   for i = 1, #pages do
-    screen.move(x0 + (i - 1) * 5 + 1, 8)
-    screen.line_rel(3, 0)
-    screen.line_width(3)
     screen.level(i == page and 15 or 2)
-    screen.stroke()
+    screen.rect(x0 + (i - 1) * 5 + 1, 6.5, 3, 3)
+    screen.fill()
   end
 end
 
