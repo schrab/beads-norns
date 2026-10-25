@@ -9,11 +9,16 @@ local beadse = {}
 
 local MEDIA = { "scorched tape", "sunny tape", "cold digital", "digital" }
 
+-- controlspec args: (min, max, warp, step, default, units, quantum).
+-- step = snap grid for stored values; quantum = per-encoder-detent
+-- increment IN NORMALIZED 0..1 UNITS (Control:delta adds d*quantum to the
+-- raw 0..1 value). One detent must equal one display step, so
+-- quantum = step / (max - min) everywhere.
 local cs = {
-  unit = controlspec.new(0, 1, "lin", 0.005, 0.5, ""),
-  amt = controlspec.new(-1, 1, "lin", 0.02, 0, ""),
-  pitch = controlspec.new(-24, 24, "lin", 0.1, 0, "st"),
-  gain = controlspec.new(0, 255, "lin", 1, 0, ""),
+  unit = controlspec.new(0, 1, "lin", 0.005, 0.5, "", 0.005),
+  amt = controlspec.new(-1, 1, "lin", 0.02, 0, "", 0.01),
+  pitch = controlspec.new(-24, 24, "lin", 0.1, 0, "st", 0.1 / 48),
+  gain = controlspec.new(0, 255, "lin", 1, 0, "", 1 / 255),
 }
 
 local function ri(x) return math.floor(x + 0.5) end
@@ -58,13 +63,13 @@ function beadse.add_params()
 
   params:add {
     type = "control", id = "density", name = "density",
-    controlspec = controlspec.new(0, 1, "lin", 0.005, 0.3, ""),
+    controlspec = controlspec.new(0, 1, "lin", 0.005, 0.3, "", 0.005),
     formatter = density_format,
     action = function(x) engine.density(x) end,
   }
   params:add {
     type = "control", id = "size", name = "size",
-    controlspec = controlspec.new(0, 1, "lin", 0.005, 0.3, ""),
+    controlspec = controlspec.new(0, 1, "lin", 0.005, 0.3, "", 0.005),
     formatter = function(param)
       local s = param:get()
       if s > 0.99 then return "delay mode" end
@@ -94,12 +99,12 @@ function beadse.add_params()
 
   params:add {
     type = "control", id = "feedback", name = "feedback",
-    controlspec = controlspec.new(0, 1, "lin", 0.005, 0, ""),
+    controlspec = controlspec.new(0, 1, "lin", 0.005, 0, "", 0.005),
     action = function(x) engine.feedback(x) end,
   }
   params:add {
     type = "control", id = "drywet", name = "dry/wet",
-    controlspec = controlspec.new(0, 1, "lin", 0.005, 1, ""),
+    controlspec = controlspec.new(0, 1, "lin", 0.005, 1, "", 0.005),
     formatter = function(param)
       local v = param:get()
       return v < 0.025 and "dry" or (v > 0.975 and "wet" or
@@ -111,7 +116,7 @@ function beadse.add_params()
     -- id must not be "reverb": something (a mod hook) adds its own
     -- "reverb" param after script init and paramset clobbers on collision
     type = "control", id = "rvb", name = "reverb",
-    controlspec = controlspec.new(0, 1, "lin", 0.005, 0, ""),
+    controlspec = controlspec.new(0, 1, "lin", 0.005, 0, "", 0.005),
     action = function(x) engine.reverb(x) end,
   }
   params:add {
