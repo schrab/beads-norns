@@ -42,6 +42,16 @@ local W, H = 128, 64
 -- clock sync: one engine seed pulse per norns-system beat engages the DSP's
 -- clocked paths (delay tempo = beat x density subdivision; granular divider)
 local sync_clock
+local sync_last = 0          -- os.clock() of the last pulse (watchdog)
+
+-- clock.get_bpm can error or return junk right after clock source/tempo
+-- changes; a stray error inside a clock coroutine kills it (frozen screen,
+-- dead sync loop), so every bpm use goes through this
+local function safe_bpm()
+  local ok, b = pcall(clock.get_bpm)
+  if ok and type(b) == "number" and b > 1 then return b end
+  return 120
+end
 
 local function stop_sync()
   if sync_clock then
@@ -54,12 +64,23 @@ local function start_sync()
   stop_sync()
   -- clocked SEED behavior needs the latch on, like the hardware
   if params:get("sync") == 2 and params:get("latch") == 1 then
+    sync_last = os.clock()
     sync_clock = clock.run(function()
       while true do
-        clock.sleep(60 / clock.get_bpm())
+        clock.sleep(60 / safe_bpm())
         engine.clock()
+        sync_last = os.clock()
       end
     end)
+  end
+end
+
+local function sync_watchdog()
+  if params:get("sync") == 2 and params:get("latch") == 1 then
+    local stale = os.clock() - sync_last
+    if stale > (60 / safe_bpm()) * 4 + 2 then
+      start_sync()   -- loop died or clock was reset - revive it
+    end
   end
 end
 
@@ -129,8 +150,10 @@ local function header()
     screen.move(32, 8)
     screen.text(tag)
   end
+  -- dashes anchored to the right edge so any page count fits
+  local x0 = 125 - #pages * 5
   for i = 1, #pages do
-    screen.move(112 + (i - 1) * 5, 8)
+    screen.move(x0 + (i - 1) * 5 + 1, 8)
     screen.line_rel(3, 0)
     screen.line_width(3)
     screen.level(i == page and 15 or 2)
@@ -207,9 +230,12 @@ function init()
   redrawer = clock.run(function()
     while true do
       clock.sleep(1 / 15)
+      sync_watchdog()
       if dirty then
         dirty = false
-        redraw()
+        -- keep the loop alive through a bad frame (e.g. clock mid-change)
+        local ok, err = pcall(redraw)
+        if not ok then print("beads redraw: " .. tostring(err)) end
       end
     end
   end)
@@ -352,7 +378,7 @@ function redraw()
     screen.move(0, 62)
     if params:get("sync") == 2 then
       screen.text("delay tempo = " ..
-        string.format("%d", math.floor(clock.get_bpm() + 0.5)) ..
+        string.format("%d", math.floor(safe_bpm() + 0.5)) ..
         " bpm x density subdivision")
     else
       screen.text("K1+K2 clock sync on")
@@ -376,7 +402,7 @@ function redraw()
     screen.move(0, 62)
     screen.text("K1+K2 sync " ..
       (params:get("sync") == 2
-        and (string.format("%d", math.floor(clock.get_bpm() + 0.5)) .. "bpm")
+        and (string.format("%d", math.floor(safe_bpm() + 0.5)) .. "bpm")
         or "off") ..
       "  K1+K3 latch " .. (params:get("latch") == 1 and "on" or "off"))
   end
