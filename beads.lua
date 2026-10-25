@@ -331,66 +331,97 @@ function redraw()
     screen.text(string.format("%+.1f st", params:get("pitch")))
 
     local bx, bw = 4, 120
-    local wx = bx + STATS.write * bw
+    local cy, r = 44, 8
+    local L = bw - 2 * r
+    local arc_len = math.pi * r
+    local T = 2 * L + 2 * arc_len        -- loop perimeter
 
-    -- grain positions are write-head-relative (live grains ride the tape),
-    -- so the whole cloud marches with the write head and freezes with it
-    local function tape_x(pos)
-      local rel = STATS.write - pos
-      rel = rel - math.floor(rel)
-      return bx + rel * bw
+    -- point on the pill loop, t in [0,1): clockwise from top-left
+    local function loop_point(t)
+      t = t - math.floor(t)
+      local d = t * T
+      if d < L then
+        return bx + r + d, cy - r
+      elseif d < L + arc_len then
+        local a = (d - L) / arc_len * math.pi - math.pi / 2
+        return bx + bw - r + r * math.cos(a), cy + r * math.sin(a)
+      elseif d < 2 * L + arc_len then
+        return bx + bw - r - (d - L - arc_len), cy + r
+      else
+        local a = (d - 2 * L - arc_len) / arc_len * math.pi + math.pi / 2
+        return bx + r + r * math.cos(a), cy + r * math.sin(a)
+      end
     end
 
+    -- the loop: 1px outline (aa'd sampled path)
+    screen.aa(1)
+    screen.line_width(1)
+    screen.level(3)
+    local segs = 48
+    local x0, y0 = loop_point(0)
+    screen.move(x0, y0)
+    for i = 1, segs do
+      local x, y = loop_point(i / segs)
+      screen.line(x, y)
+    end
+    screen.stroke()
+
+    local function dash(q, len_px, level)
+      local d = (len_px / 2) / T
+      local x1, y1 = loop_point(q - d)
+      local x2, y2 = loop_point(q + d)
+      screen.line_width(3)
+      screen.level(level)
+      screen.move(x1, y1)
+      screen.line(x2, y2)
+      screen.stroke()
+      screen.line_width(1)
+    end
+
+    local size = params:get("size")
+    local rate = density_rate(params:get("density"))
+    local dur = grain_dur_s(size)
+    local rev = size < 1 / 3
+
     if STATS.dmode > 0.5 then
-      -- tape/delay mode: repeats marching right from the read position
-      local tx = tape_x(params:get("time"))
-      for i = 0, 5 do
-        local x = tx + i * 5
-        if x > bx + bw then break end
-        screen.level(15 - i * 2)
-        screen.move(x, 38)
-        screen.line(x, 48)
-        screen.stroke()
+      -- tape mode: read position with regen echoes trailing behind
+      local base = (STATS.write - params:get("time")) % 1
+      for i = 3, 0, -1 do
+        dash(base + i * 0.09, 5, 15 - i * 4)
       end
     else
-      -- grain cloud: count = rate x duration (density x size), mark
-      -- length = duration law, x scatter = time amount, dim = reverse
-      local size = params:get("size")
-      local rate = density_rate(params:get("density"))
-      local dur = grain_dur_s(size)
-      local n = util.clamp(math.floor(rate * dur + 0.5), 1, 10)
+      -- grains ride the loop: count = rate x duration, dash length =
+      -- duration law, offset behind the write head = time (+ scatter
+      -- from time amount), dim = reverse
+      local n_exp = rate > 0 and math.floor(rate * dur + 0.5) or 0
+      local n = math.min(n_exp, 12)
       local spread = rate > 0 and math.abs(params:get("time_amt")) or 0
       local len = util.clamp(
-        4 + 34 * (math.log(dur) - math.log(0.008)) /
-        (math.log(4) - math.log(0.008)), 2, 38)
-      local rev = size < 1 / 3
+        3 + 11 * (math.log(dur) - math.log(0.008)) /
+        (math.log(4) - math.log(0.008)), 3, 14)
       for i = 1, n do
         local frac = (i * 0.61803398875) % 1
         local pos = util.clamp(params:get("time") + (frac - 0.5) * spread, 0, 1)
-        local cx = tape_x(pos)
-        local y = 32 + math.floor(((i * 0.375) % 1) * 14)
-        local x1 = util.clamp(cx - len / 2, bx, bx + bw - 1)
-        local x2 = util.clamp(cx + len / 2, bx + 1, bx + bw)
-        screen.level(rate > 0 and (rev and 6 or 12) or 4)
-        screen.move(x1, y)
-        screen.line(x2, y)
-        screen.stroke()
+        dash((STATS.write - pos) % 1, len, rev and 6 or 12)
       end
+      if rate <= 0 and params:get("latch") == 0 then
+        -- deadband, gated: one manual grain at the time position
+        dash((STATS.write - params:get("time")) % 1, 5, 6)
+      end
+      -- exact count, centered in the loop
+      screen.level(n > 0 and 15 or 4)
+      screen.move(bx + bw / 2, cy + 3)
+      screen.text_center(n_exp > 12 and ">12" or tostring(n_exp))
     end
 
-    -- recorded buffer band (brightness = overwrite reserve) with the
-    -- WRITE head as a downward triangle: sweeps at constant tape speed
-    -- while recording, stops when frozen
-    local band_y = 52
-    screen.level(1 + math.floor(STATS.reserve * 5))
-    screen.rect(bx, band_y, bw, 2)
-    screen.fill()
+    -- write head: tick crossing the loop (sweeps while recording,
+    -- freezes with the tape)
+    local hx, hy = loop_point(STATS.write)
     screen.level(15)
-    screen.move(wx - 2, band_y - 3)
-    screen.line(wx, band_y)
-    screen.line(wx + 2, band_y - 3)
-    screen.close()
-    screen.fill()
+    screen.move(hx, hy - 3)
+    screen.line(hx, hy + 4)
+    screen.stroke()
+    screen.aa(0)
 
     -- footer
     screen.level(4)
