@@ -329,14 +329,34 @@ end
 
 local function spawn_grain()
   if #grains >= 16 then return end
+  local buf_s = buf_seconds()
+  local frozen = params:get("freeze") == 1
   local size_k = randomized_value(params:get("size"), params:get("size_amt"), 1, true)
+  local dur = grain_dur_s(size_k)
   local pitch_st = randomized_value(params:get("pitch"), params:get("pitch_amt"), 24, false)
+  local ratio = 2 ^ (pitch_st / 12)
+  local rev = size_k < 1 / 3
+  -- DelayGrain::Start: consumption = speed - (frozen and 0 or 1),
+  -- speed = (rev and -1 or 1) * pitch_ratio. Trims mirror the DSP:
+  -- duration capped so the sweep fits, start age clamped so the grain
+  -- never crosses the recording head.
+  local speed = rev and -ratio or ratio
+  local c = speed - (frozen and 0 or 1)
+  if c ~= 0 then
+    dur = math.min(dur, buf_s / math.abs(c))
+  end
+  local a0 = randomized_value(params:get("time"), params:get("time_amt"), 1, true)
+  if c > 0 then
+    a0 = math.max(a0, c * dur / buf_s)
+  elseif c < 0 then
+    a0 = math.min(a0, 1 - math.abs(c) * dur / buf_s)
+  end
   grains[#grains + 1] = {
     born = os.clock(),
-    pos = randomized_value(params:get("time"), params:get("time_amt"), 1, true),
-    dur = grain_dur_s(size_k),
-    ratio = 2 ^ (pitch_st / 12),
-    rev = size_k < 1 / 3,
+    anchor = a0,       -- oldest material of the grain (loop fraction)
+    dur = dur,
+    ratio = ratio,
+    rev = rev,
     shape = randomized_value(params:get("shape"), params:get("shape_amt"), 1, true),
   }
 end
@@ -367,16 +387,23 @@ local function grain_sim_tick(dt, buf_s, frozen)
       if spawn_acc > 2 then spawn_acc = 2 end
     end
   end
-  -- read-point drift: on running tape the offset behind the head grows
-  -- at (ratio - 1) loop-fractions per second (tape term 1 minus the
-  -- grain's own sweep); on frozen tape the grain sweeps at full ratio
-  local tape_term = frozen and 0 or 1
-  for _, g in ipairs(grains) do
-    g.pos = (g.pos + (g.ratio - tape_term) * dt / buf_s) % 1
-  end
+  -- grain kinematics: the material span is glued to the tape (anchors
+  -- recede at one loop per buf_s while the tape runs); a grain dies at
+  -- the end of its duration or when its stylus hits the head (the DSP's
+  -- HEAD_CROSSING_POLICY_STOP)
   local now = os.clock()
   for i = #grains, 1, -1 do
-    if now - grains[i].born > grains[i].dur then table.remove(grains, i) end
+    local g = grains[i]
+    local age = now - g.born
+    local stylus = g.anchor + (g.rev and g.ratio or -g.ratio) * age / buf_s
+    if age > g.dur or stylus < 0 or stylus > 1 then
+      table.remove(grains, i)
+    end
+  end
+  if not frozen then
+    for _, g in ipairs(grains) do
+      g.anchor = (g.anchor + dt / buf_s) % 1
+    end
   end
 end
 
@@ -651,7 +678,7 @@ function redraw()
     -- curve (no rotating chords)
     local function path_stroke(q, len_px, level)
       local d = (len_px / 2) / T
-      local steps = math.max(3, math.floor(len_px / 2))
+      local steps = math.max(3, math.min(24, math.floor(len_px / 2)))
       screen.line_width(3)
       screen.level(level)
       local x, y = loop_point(q - d)
@@ -700,12 +727,12 @@ function redraw()
         path_stroke(base + i * 0.09, 5, 15 - i * 4)
       end
     else
-      -- live grains: positions are integrated per tick in grain_sim_tick
-      -- (spawn offset = time with per-grain randomization, read point
-      -- drifts at ratio-1 on running tape, ratio on frozen tape), length
-      -- = the grain's own duration (log-mapped 8ms..4s), brightness = the
-      -- grain's envelope (shape), dim = reverse. The expected concurrent
-      -- count is rate x duration.
+      -- live grains, exact geometry: a grain's material span is
+      -- ratio x duration of tape, GLUED TO THE LOOP (the anchor recedes
+      -- with the tape like the splice), extending toward newer material
+      -- for forward grains, older for reverse; the stylus (bright pixel)
+      -- sweeps the span at the playback ratio. Brightness = envelope.
+      local buf_s = buf_seconds()
       local drawn = 0
       for _, g in ipairs(grains) do
         local age = now - g.born
@@ -713,11 +740,17 @@ function redraw()
         if t < 1 then
           local env = envelope_point(g.shape, t)
           if env > 0.02 then
-            local len = util.clamp(
-              3 + 11 * (math.log(g.dur) - math.log(0.008)) /
-              (math.log(4) - math.log(0.008)), 3, 14)
-            path_stroke((HEAD_T - g.pos) % 1, len * (0.6 + 0.4 * env),
+            local dir = g.rev and -1 or 1
+            local span_frac = math.min(g.ratio * g.dur / buf_s, 1)
+            local anchor_t = (HEAD_T - g.anchor) % 1
+            local center_t = anchor_t + dir * span_frac / 2
+            path_stroke(center_t % 1, span_frac * T,
                         math.max(1, math.floor((g.rev and 6 or 12) * env)))
+            local stylus_t = (anchor_t + dir * g.ratio * age / buf_s) % 1
+            local sx, sy = loop_point(stylus_t)
+            screen.level(math.floor(6 + 9 * env))
+            screen.rect(util.round(sx), util.round(sy), 1, 1)
+            screen.fill()
             drawn = drawn + 1
           end
         end
