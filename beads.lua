@@ -437,11 +437,12 @@ local function header()
     screen.text(tag)
   end
   -- square page dots anchored to the right edge so any page count fits
-  -- (rect fill - immune to the round line caps the grain strokes need)
+  -- (rect fill - immune to the round line caps the grain strokes need);
+  -- vertically centered on the status text
   local x0 = 125 - #pages * 5
   for i = 1, #pages do
     screen.level(i == page and 15 or 2)
-    screen.rect(x0 + (i - 1) * 5 + 1, 6.5, 3, 3)
+    screen.rect(x0 + (i - 1) * 5 + 1, 3.5, 3, 3)
     screen.fill()
   end
 end
@@ -633,16 +634,16 @@ function redraw()
   if page == 1 then
     -- values
     screen.level(4)
-    screen.move(0, 22)
+    screen.move(0, 18)
     screen.text("time")
     screen.level(15)
-    screen.move(38, 22)
+    screen.move(38, 18)
     screen.text(string.format("%.2f", params:get("time")))
     screen.level(4)
-    screen.move(64, 22)
+    screen.move(64, 18)
     screen.text("pitch")
     screen.level(15)
-    screen.move(96, 22)
+    screen.move(96, 18)
     screen.text(string.format("%+.1f st", params:get("pitch")))
 
     local bx, bw = 4, 120
@@ -801,18 +802,18 @@ function redraw()
       density_string(params:get("density")) ..
       "  p.amt " .. string.format("%+.2f", params:get("pitch_amt")))
   elseif page == 2 then
-    draw_envelope(4, 26, 119, 26, params:get("shape"))
+    draw_envelope(4, 22, 119, 26, params:get("shape"))
     screen.level(4)
-    screen.move(0, 22)
+    screen.move(0, 18)
     screen.text("dens")
     screen.level(15)
-    screen.move(30, 22)
+    screen.move(30, 18)
     screen.text(density_string(params:get("density")))
     screen.level(4)
-    screen.move(64, 22)
+    screen.move(64, 18)
     screen.text("size")
     screen.level(15)
-    screen.move(90, 22)
+    screen.move(90, 18)
     screen.text(string.format("%.2f", params:get("size")))
     screen.level(4)
     screen.move(0, 62)
@@ -835,7 +836,7 @@ function redraw()
       { "E4 shape amt", params:get("shape_amt") },
     }
     for i, r in ipairs(rows) do
-      local y = 26 + (i - 1) * 12
+      local y = 22 + (i - 1) * 12
       screen.level(4)
       screen.move(0, y)
       screen.text(r[1])
@@ -851,7 +852,7 @@ function redraw()
       { "E4 dry/wet", params:get("drywet") },
     }
     for i, r in ipairs(rows) do
-      local y = 26 + (i - 1) * 12
+      local y = 22 + (i - 1) * 12
       screen.level(4)
       screen.move(0, y)
       screen.text(r[1])
@@ -876,7 +877,7 @@ function redraw()
       { "E4 latch", params:get("latch") == 1 and "on (free run)" or "off (gated)" },
     }
     for i, r in ipairs(rows) do
-      local y = 26 + (i - 1) * 12
+      local y = 22 + (i - 1) * 12
       screen.level(4)
       screen.move(0, y)
       screen.text(r[1])
@@ -895,7 +896,7 @@ function redraw()
       { "E4 in gain", string.format("%.2fx", params:get("gain")) },
     }
     for i, r in ipairs(rows) do
-      local y = 26 + (i - 1) * 12
+      local y = 22 + (i - 1) * 12
       screen.level(4)
       screen.move(0, y)
       screen.text(r[1])
@@ -916,7 +917,7 @@ function redraw()
           or (params:get("midi_bend") .. " st") },
     }
     for i, r in ipairs(rows) do
-      local y = 26 + (i - 1) * 12
+      local y = 22 + (i - 1) * 12
       screen.level(4)
       screen.move(0, y)
       screen.text(r[1])
