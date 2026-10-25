@@ -373,11 +373,11 @@ function redraw()
     end
     screen.stroke()
 
-    -- the record head is a FIXED symbol on the loop (left end of the top
-    -- straight); the tape moves past it. Grain/read positions are drawn
-    -- as fixed offsets from the head along the loop - static until a
+    -- the record head is a FIXED caret (^) centered on the top of the
+    -- loop; the tape moves past it. Grain/read positions are drawn as
+    -- fixed offsets from the head along the loop - static until a
     -- parameter changes, nothing animates on its own
-    local HEAD_T = 0.0
+    local HEAD_T = L / (2 * T)   -- midpoint of the top straight
 
     -- a grain is a trimmed segment of a second 3px stroke on the same
     -- path: sample the loop between q-d and q+d so the dash follows the
@@ -438,12 +438,12 @@ function redraw()
       screen.text_center(n_exp > 12 and ">12" or tostring(n_exp))
     end
 
-    -- the static record head: a short fixed line crossing the loop at
-    -- HEAD_T (with a small notch below - it touches the tape)
+    -- the static record head: a ^ caret with its apex touching the loop
     local hx, hy = loop_point(HEAD_T)
     screen.level(15)
-    screen.move(hx - 1, hy - 4)
-    screen.line(hx - 1, hy + 5)
+    screen.move(hx - 3, hy + 3)
+    screen.line(hx, hy - 1)
+    screen.line(hx + 3, hy + 3)
     screen.stroke()
     screen.aa(0)
 
