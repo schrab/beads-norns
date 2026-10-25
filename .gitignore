@@ -1,0 +1,4 @@
+ugens/BeadsUGen.so
+ugens/*.o
+*.so
+*.o
