@@ -17,37 +17,46 @@ in the wrapper.
 ## Layout
 
 ```
-beads.lua               norns script (6 pages, no alt layers)
+beads.lua               norns script (8 pages, no alt layers)
 lib/Engine_Beads.sc     CroneEngine wrapper (commands + polls)
+lib/BeadsUGen.sc        sclang class for the UGen (compiled from ~/dust)
 lib/beads_engine.lua    param registration
 ugens/beads_ugen.cpp    SC UGen: rate adapters + GainControl + beads::Processor
 ugens/eurorack-beads/   vendored beads dsp + stmlib subset (MIT, pristine)
 ugens/sc-plugin-headers/ vendored SC plugin headers (3.13.0)
-deploy.sh               sync to the device, build + install the plugin
+deploy.sh               dev flow: sync to the device, build + install
 ```
 
-## Install (on the norns itself — native build, needs g++ + make)
+## Install (from GitHub, on the norns itself)
+
+The script folder must be named `beads` (norns matches the folder name to
+the main lua file), so clone with a target directory:
 
 ```sh
-# copy this folder to ~/dust/code/beads on the norns, then:
+git clone https://github.com/schrab/beads-norns ~/dust/code/beads
 cd ~/dust/code/beads/ugens
 make && make install
 sudo systemctl restart norns-jack norns-sclang norns-main
 ```
 
-Select `beads` from SELECT. The UGen assumes scsynth at 48 kHz (norns default).
+`make install` copies the compiled `BeadsUGen.so` into
+`/usr/local/lib/SuperCollider/plugins/` (sudo; the only dir the norns
+scsynth scans for plugins). The sclang classes compile straight from
+`~/dust` — nothing else to install. Requires `g++` and `make` on the
+norns (`sudo apt-get install -y build-essential` if missing; the stock
+image usually has them). The UGen assumes scsynth at 48 kHz (norns
+default). Then select `beads` from SELECT.
 
-Note: sclang compiles every `.sc` under `~/dust`, so `ugens/BeadsUGen.sc` must
-NOT be copied there — `make install` puts it in
-`~/.local/share/SuperCollider/Extensions/BeadsUGens/` where it belongs
-(the Makefile tolerates it being absent from the build tree).
+Upgrading: `cd ~/dust/code/beads && git pull && cd ugens && make &&
+make install` + restart. Removing: delete `~/dust/code/beads` and
+`/usr/local/lib/SuperCollider/plugins/BeadsUGen.so`.
 
 ## Deploy (from the dev machine)
 
 `./deploy.sh [host]` (default host `fates`) tars the tree to
-`~/dust/code/beads`, rebuilds `BeadsUGen.so` on-device, and installs it (the
-`.so` into `/usr/local/lib/SuperCollider/plugins/` via sudo, the class file
-into `~/.local/share/SuperCollider/Extensions/BeadsUGens/`). Then restart the
+`~/dust/code/beads`, rebuilds `BeadsUGen.so` on-device, installs it to
+`/usr/local/lib/SuperCollider/plugins/`, and removes any legacy
+`Extensions/BeadsUGens` copy. Then restart the
 three units explicitly — `systemctl restart norns-jack norns-sclang
 norns-main` (restarting `norns.target` alone does NOT restart bound
 services). Set `clean_shutdown = true` in `~/dust/data/system.state` before
@@ -205,9 +214,10 @@ All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and the
   engine still "loads".
 - **Plugin install locations (norns scsynth 3.13)**: `.so` →
   `/usr/local/lib/SuperCollider/plugins/` (the dir scsynth scans;
-  Extensions-dir `.so`s are NOT loaded). Class `.sc` →
-  `~/.local/share/SuperCollider/Extensions/BeadsUGens/`. Never a `.sc`
-  under `~/dust` (duplicate class compile → SUPERCOLLIDER FAIL).
+  Extensions-dir `.so`s are NOT loaded). Classes (`.sc`) compile straight
+  from `~/dust` — keep exactly ONE copy in the script tree (`lib/`);
+  installing a second copy into Extensions duplicates the class
+  definition → SUPERCOLLIDER FAIL.
 - **Build needs `-DTEST`** (stmlib portable impls of `Clip16`/`Sqrt`,
   section attributes) plus `stmlib/utils/random.cc` and
   `stmlib/dsp/units.cc` linked — without them the `.so` resolves symbols
