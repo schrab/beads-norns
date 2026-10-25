@@ -16,6 +16,7 @@ tar czf - \
   beads.lua lib ugens \
   | ssh "$HOST" "mkdir -p $DEST && tar xzf - -C $DEST && \
       make -C $DEST/ugens && make -C $DEST/ugens install && \
-      rm -f $DEST/ugens/*.o $DEST/ugens/BeadsUGen.so"
+      rm -f $DEST/ugens/*.o $DEST/ugens/BeadsUGen.so && \
+      rm -f ~/.local/share/SuperCollider/Extensions/BeadsUGens/BeadsUGen.so"
 
 echo "synced + built. restart with: ssh $HOST sudo systemctl restart norns.target"

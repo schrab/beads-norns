@@ -51,7 +51,7 @@ enum PotParams {
   POT_LAST
 };
 
-struct Beads : public Unit {
+struct BeadsUGen : public Unit {
 
   beads::Processor *processor;
 
@@ -83,11 +83,11 @@ struct Beads : public Unit {
   stmlib::GateFlags seed_buf_[kMaxChunk];
 };
 
-static void Beads_Ctor(Beads *unit);
-static void Beads_Dtor(Beads *unit);
-static void Beads_next(Beads *unit, int inNumSamples);
+static void BeadsUGen_Ctor(BeadsUGen *unit);
+static void BeadsUGen_Dtor(BeadsUGen *unit);
+static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples);
 
-static void Beads_Ctor(Beads *unit) {
+static void BeadsUGen_Ctor(BeadsUGen *unit) {
 
   if (SAMPLERATE != 48000.f) {
     Print("Beads WARNING: scsynth sample rate is %g Hz; the engines assume 48 kHz\n",
@@ -136,40 +136,40 @@ static void Beads_Ctor(Beads *unit) {
   unit->delay_mode_transition_ = 0.0f;
   unit->delay_mode_ = false;
 
-  SETCALC(Beads_next);
+  SETCALC(BeadsUGen_next);
   ClearUnitOutputs(unit, 1);
 }
 
 
-static void Beads_Dtor(Beads *unit) {
+static void BeadsUGen_Dtor(BeadsUGen *unit) {
   if (unit->processor) delete unit->processor;
   if (unit->delay_buffer) RTFree(unit->mWorld, unit->delay_buffer);
   if (unit->reverb_buffer) RTFree(unit->mWorld, unit->reverb_buffer);
 }
 
 
-static inline float Beads_smooth(float current, float target) {
+static inline float BeadsUGen_smooth(float current, float target) {
   return current + 0.2f * (target - current);
 }
 
 
-static void Beads_next(Beads *unit, int inNumSamples) {
+static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
 
   // ----- read control args (switches unsmoothed, pots one-poled) -----
   float *cur = unit->cur_;
-  cur[POT_TIME]      = Beads_smooth(cur[POT_TIME],      IN0(0));
-  cur[POT_TIME_AMT]  = Beads_smooth(cur[POT_TIME_AMT],  IN0(1));
-  cur[POT_SIZE]      = Beads_smooth(cur[POT_SIZE],      IN0(2));
-  cur[POT_SIZE_AMT]  = Beads_smooth(cur[POT_SIZE_AMT],  IN0(3));
-  cur[POT_SHAPE]     = Beads_smooth(cur[POT_SHAPE],     IN0(4));
-  cur[POT_SHAPE_AMT] = Beads_smooth(cur[POT_SHAPE_AMT], IN0(5));
-  cur[POT_PITCH]     = Beads_smooth(cur[POT_PITCH],     IN0(6));
-  cur[POT_PITCH_AMT] = Beads_smooth(cur[POT_PITCH_AMT], IN0(7));
-  cur[POT_DENSITY]   = Beads_smooth(cur[POT_DENSITY],   IN0(8));
-  cur[POT_FEEDBACK]  = Beads_smooth(cur[POT_FEEDBACK],  IN0(9));
-  cur[POT_DRYWET]    = Beads_smooth(cur[POT_DRYWET],    IN0(10));
-  cur[POT_REVERB]    = Beads_smooth(cur[POT_REVERB],    IN0(11));
-  cur[POT_GAIN]      = Beads_smooth(cur[POT_GAIN],      IN0(12));
+  cur[POT_TIME]      = BeadsUGen_smooth(cur[POT_TIME],      IN0(0));
+  cur[POT_TIME_AMT]  = BeadsUGen_smooth(cur[POT_TIME_AMT],  IN0(1));
+  cur[POT_SIZE]      = BeadsUGen_smooth(cur[POT_SIZE],      IN0(2));
+  cur[POT_SIZE_AMT]  = BeadsUGen_smooth(cur[POT_SIZE_AMT],  IN0(3));
+  cur[POT_SHAPE]     = BeadsUGen_smooth(cur[POT_SHAPE],     IN0(4));
+  cur[POT_SHAPE_AMT] = BeadsUGen_smooth(cur[POT_SHAPE_AMT], IN0(5));
+  cur[POT_PITCH]     = BeadsUGen_smooth(cur[POT_PITCH],     IN0(6));
+  cur[POT_PITCH_AMT] = BeadsUGen_smooth(cur[POT_PITCH_AMT], IN0(7));
+  cur[POT_DENSITY]   = BeadsUGen_smooth(cur[POT_DENSITY],   IN0(8));
+  cur[POT_FEEDBACK]  = BeadsUGen_smooth(cur[POT_FEEDBACK],  IN0(9));
+  cur[POT_DRYWET]    = BeadsUGen_smooth(cur[POT_DRYWET],    IN0(10));
+  cur[POT_REVERB]    = BeadsUGen_smooth(cur[POT_REVERB],    IN0(11));
+  cur[POT_GAIN]      = BeadsUGen_smooth(cur[POT_GAIN],      IN0(12));
 
   CONSTRAIN(cur[POT_TIME], 0.f, 1.f);
   CONSTRAIN(cur[POT_TIME_AMT], -1.f, 1.f);
@@ -337,5 +337,8 @@ static void Beads_next(Beads *unit, int inNumSamples) {
 
 PluginLoad(BeadsUGen) {
   ft = inTable;
-  DefineDtorUnit(Beads);
+  // the struct name IS the registered ugen name - it must match the
+  // sclang class name (BeadsUGen.ar) exactly or the server rejects every
+  // synthdef with "UGen not installed"
+  DefineDtorUnit(BeadsUGen);
 }

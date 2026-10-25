@@ -14,11 +14,18 @@
 Engine_Beads : CroneEngine {
 
 	var synth;
-	var statusBus;
+	var reserveBus, writeBus, dmodeBus;
 	var <reserve, <writePos, <delayMode;
 
 	alloc {
 		var def, sr;
+
+		// single-channel buses: getSynchronous returns a Float per bus and
+		// they must exist before the SynthDef closure reads .index at
+		// build time
+		reserveBus = Bus.control(context.server, 1);
+		writeBus = Bus.control(context.server, 1);
+		dmodeBus = Bus.control(context.server, 1);
 
 		def = SynthDef("beads_engine", {
 			var inL = In.ar(context.in_b[0].index, 1);
@@ -47,13 +54,13 @@ Engine_Beads : CroneEngine {
 			);
 			Out.ar(context.out_b.index, sig[0..1]);
 			// status lane: reserve / write position / delay mode
-			Out.kr(statusBus.index + [0, 1, 2], A2K.kr(sig[2..4]));
+			Out.kr(reserveBus.index, A2K.kr(sig[2]));
+			Out.kr(writeBus.index, A2K.kr(sig[3]));
+			Out.kr(dmodeBus.index, A2K.kr(sig[4]));
 		});
 
 		def.add;
 		context.server.sync;
-
-		statusBus = Bus.control(context.server, 3);
 
 		synth = Synth.new("beads_engine", [], context.xg);
 
@@ -76,14 +83,26 @@ Engine_Beads : CroneEngine {
 		this.addCommand("media", "f", { arg msg; synth.set(\media, msg[1]) });
 		this.addCommand("mono", "f", { arg msg; synth.set(\mono, msg[1]) });
 
-		this.addPoll("beads_reserve", { statusBus.getSynchronous[0] });
-		this.addPoll("beads_write", { statusBus.getSynchronous[1] });
-		this.addPoll("beads_dmode", { statusBus.getSynchronous[2] });
+		// getSynchronous can return nil while the server is busy; guard it
+		this.addPoll("beads_reserve", {
+			var v = reserveBus.getSynchronous;
+			if(v.notNil) { v } { 0 };
+		});
+		this.addPoll("beads_write", {
+			var v = writeBus.getSynchronous;
+			if(v.notNil) { v } { 0 };
+		});
+		this.addPoll("beads_dmode", {
+			var v = dmodeBus.getSynchronous;
+			if(v.notNil) { v } { 0 };
+		});
 	}
 
 	free {
 		synth.free;
-		statusBus.free;
+		reserveBus.free;
+		writeBus.free;
+		dmodeBus.free;
 	}
 
 }

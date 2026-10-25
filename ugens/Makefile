@@ -35,11 +35,14 @@ BeadsUGen.so: $(OBJS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 install: BeadsUGen.so
+	# the UGen BINARY goes into the system plugin dir (sudo) - that is the
+	# dir the norns scsynth actually scans; do NOT also keep a copy under
+	# ~/dust (duplicate registration)
+	sudo cp BeadsUGen.so /usr/local/lib/SuperCollider/plugins/
+	# the CLASS file lives in user Extensions; it only needs installing once
+	# and may be absent from this build tree (sclang compiles everything
+	# under ~/dust, so it must not be synced there)
 	mkdir -p ~/.local/share/SuperCollider/Extensions/BeadsUGens
-	cp BeadsUGen.so ~/.local/share/SuperCollider/Extensions/BeadsUGens/
-	# the .sc may be absent from this build tree (removed to avoid duplicate
-	# class compilation, since sclang compiles everything under ~/dust);
-	# it only needs installing once - Extensions keeps it across updates
 	-cp BeadsUGen.sc ~/.local/share/SuperCollider/Extensions/BeadsUGens/
 
 clean:
