@@ -160,13 +160,13 @@ function beadse.add_params()
     action = function(x) engine.freeze(x) end,
   }
   -- the seed BUTTON as a param: momentary (menu: hold K3 on the row;
-  -- MIDI mapping: a CC holds the gate open). K3 on the screen routes
-  -- through this so the menu state, viz and mapping all stay in sync.
+  -- MIDI mapping: a CC holds the gate open). The engine gate is pushed by
+  -- the on_seed hook with the combined state (button OR matrix-mod
+  -- modulation), so the hook must be the only engine path.
   params:add {
     type = "binary", id = "seed_btn", name = "seed (hold)",
     behavior = "momentary", default = 0,
     action = function(x)
-      engine.seed(x)
       if beadse.on_seed then beadse.on_seed(x) end
     end,
   }

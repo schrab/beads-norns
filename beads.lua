@@ -47,6 +47,11 @@ local STATS = { reserve = 1.0, dmode = 0.0 }
 local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "CLOCK", "SETUP", "TAPE", "MIDI", "SYNTH" }
 local page = 1
 local seed_down = false
+-- seed gate opened through matrix-mod modulation (e.g. a marbles t-gate
+-- mapped to the "seed (hold)" param): matrix stores live source*depth
+-- values on the param object but never fires the action (it only patches
+-- number:bang, not binary:bang), so the gate is tracked separately
+local seed_mod = false
 local dirty = true
 local redrawer
 
@@ -453,7 +458,7 @@ local function grain_sim_tick(dt, buf_s, frozen)
         end
       end
     end
-    if rate > 0 and ((latch and not clocked) or seed_down) then
+    if rate > 0 and ((latch and not clocked) or seed_down or seed_mod) then
       -- free-running gate: latched without clock, or the seed button held
       spawn_acc = spawn_acc + rate * dt
       while spawn_acc >= 1 do
@@ -496,7 +501,7 @@ local function header()
   if params:get("freeze") == 1 then tag = tag .. " FRZ" end
   if STATS.dmode > 0.5 then tag = tag .. " DELAY" end
   if tape_playing then tag = tag .. " TAPE" end
-  if seed_down then tag = tag .. " SEED" end
+  if seed_down or seed_mod then tag = tag .. " SEED" end
   if params:get("latch") == 1 then tag = tag .. " LATCH" end
   if params:get("sync") == 2 then tag = tag .. " CLK" end
   local amt = params:get("pitch_amt")
@@ -600,6 +605,8 @@ function init()
     if x == 1 and density_rate(params:get("density")) == 0 then
       spawn_grain()
     end
+    -- the engine gate is the combined state: button OR matrix modulation
+    pcall(function() engine.seed((seed_down or seed_mod) and 1 or 0) end)
     dirty = true
   end
   beadse.on_load_file = load_tape_file
@@ -621,6 +628,34 @@ function init()
     grains = {}
     seam_have = false
     dirty = true
+  end
+
+  -- The matrix mod drives a mapped param by updating its .modulation and
+  -- deferring a CLASS bang - and Binary:bang fires action(self.value) with
+  -- the raw user value (0), so the modulation would never open the seed
+  -- gate (matrix patches number:bang but not binary:bang). Wrap the seed
+  -- param's bang: recompute the modulation component synchronously (it is
+  -- already updated in matrix:set before the deferred bang), then let the
+  -- class bang run the action path, which pushes the combined gate.
+  local seed_param = params:lookup_param("seed_btn")
+  local seed_class_bang = seed_param.bang
+  seed_param.bang = function(self)
+    local m = self.modulation
+    local on = false
+    if m then
+      for _, v in pairs(m) do
+        if (v or 0) > 0 then on = true break end
+      end
+    end
+    if on ~= seed_mod then
+      seed_mod = on
+      -- the DSP registers a tap on the gate's OFF->ON edge (one grain in
+      -- the density deadband, tap tempo in delay mode) - mirror that
+      if on and density_rate(params:get("density")) == 0 then
+        spawn_grain()
+      end
+    end
+    seed_class_bang(self)
   end
 
   params:default()
