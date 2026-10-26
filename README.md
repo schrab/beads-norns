@@ -29,10 +29,11 @@ in the wrapper.
 ## Layout
 
 ```
-beads.lua               norns script (8 pages, no alt layers)
-lib/Engine_Beads.sc     CroneEngine wrapper (commands + polls)
+beads.lua               norns script (9 pages, no alt layers)
+lib/Engine_Beads.sc     CroneEngine wrapper (commands + polls + tape player)
 lib/BeadsUGen.sc        sclang class for the UGen (compiled from ~/dust)
 lib/beads_engine.lua    param registration
+lib/fileselect.lua      vendored norns file browser (include can't see core lua/lib)
 ugens/beads_ugen.cpp    SC UGen: rate adapters + GainControl + beads::Processor
 ugens/eurorack-beads/   vendored beads dsp + stmlib subset (MIT, pristine)
 ugens/sc-plugin-headers/ vendored SC plugin headers (3.13.0)
@@ -110,9 +111,10 @@ Pages: **PLAY** (time, pitch, pitch amount — tape-loop view), **GRAIN**
 (density, size, shape — grain envelope preview), **RANDOM** (the
 attenurandomizers: time/size/shape amounts, bipolar bars), **MIX**
 (feedback, reverb, dry/wet), **CLOCK** (sync to norns BPM, subdivision,
-seed latch), **SETUP** (media, channels, input gain), **MIDI** (note
-pitch, reference note, bend range), **SYNTH** (wavetable synth mode,
-bank, gate output).
+seed latch), **SETUP** (media, channels, input gain), **TAPE** (file
+player: level, loop/once, play/stop — K3 opens the file browser),
+**MIDI** (note pitch, reference note, bend range), **SYNTH** (wavetable
+synth mode, bank, gate output).
 
 Every control steps exactly one display increment per encoder detent
 (pitch 0.1 st, input gain 1 setting, amounts 0.02, the 0–1 params 0.005).
@@ -156,15 +158,32 @@ sprays the parameter toward random per grain (pitch: ±24 st), negative peaks
 values near the knob, zero (±0.06) = off. Pitch amount sits on PLAY next to
 pitch.
 
-**Clock sync** (CLOCK page, needs the seed latch on, like the hardware's
-clocked SEED jack): the script sends one seed pulse per norns-system beat.
-Delay mode (SIZE to max) locks its tempo to bpm × subdivision
-(1/16…1…×16 — the subdivision walks the same DSP ratio table the density
-knob uses when clocked, so GRAIN's density and CLOCK's subdiv stay
-consistent). Granular mode becomes a clocked divider/probability.
+**Clock sync** (CLOCK page): the script sends one seed pulse per
+norns-system beat. With the **seed latch on** the pulses clock the DSP
+like the hardware's clocked SEED jack — delay mode (SIZE to max) locks
+its tempo to bpm × subdivision (1/16…1…×16 — the subdivision walks the
+same DSP ratio table the density knob uses when clocked, so GRAIN's
+density and CLOCK's subdiv stay consistent), granular mode becomes a
+clocked divider/probability. With the **latch off**, every beat fires
+one seed trigger instead — the hardware's patched-SEED trigger behavior
+(each pulse spawns grains, nothing between beats). The seed button (K3)
+stays live in both modes.
 
-All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and the
-`beads_*` engine commands are available to other scripts.
+**Tape player** (TAPE page) feeds an audio file straight into the
+granulator's input — summed with the hardware line-in, at any input gain,
+recordable into the loop like a tape deck plugged into the module. Pick a
+file with **K3** (starts in `~/tape`, where norns TAPE recordings live);
+it loads and starts playing. **E4** play/stop, **E3** once/loop,
+**E2** level. Picking another file while playing switches live. This is
+the buffer-feed path norns' own TAPE menu doesn't offer (TAPE playback
+goes to the output mix only — the script's input is the line-in copy,
+there is no tape→script path in norns' mixer). The file isn't persisted
+in psets (norns 3.0 has no file param type); level and loop mode are.
+
+All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and
+the engine commands are available to other scripts and processes over OSC
+(`/command/buffer_load` with a path string, `/command/buffer_play`,
+`/command/clock`, … — the same messages the script itself sends).
 
 ## Fidelity notes
 
@@ -204,6 +223,9 @@ All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and the
   hardware auto-activates it by sensing unpatched inputs, which norns
   cannot do. Flash buffer autosave and assignable-CV routing are not
   ported.
+- One addition the hardware doesn't have: the TAPE-page file player
+  (a file streams into the granulator input). The module itself is
+  live-input only; this is the norns-native way to feed it recordings.
 - MEDIA / channel changes are ignored while frozen (the firmware instead
   saves/restores the buffer around the codec restart; the net audible
   result — buffer preserved across a frozen media change — matches).

@@ -15,7 +15,11 @@
 --   MIX    E2 feedback   E3 reverb     E4 dry/wet
 --   CLOCK  E2 sync    E3 subdivision  E4 seed latch
 --   SETUP  E2 media   E3 channels      E4 input gain
+--   TAPE   E2 level   E3 loop/once     E4 play/stop   (K3 file browser)
 --   MIDI   E2 note pitch E3 ref note   E4 bend range
+--
+-- TAPE page: play an audio file (e.g. a norns TAPE recording) into the
+-- granulator input - the buffer-feed path the hardware never had
 --
 -- MIDI note pitch = the hardware PITCH CV jack: notes (last-note priority,
 -- held on release) transpose by (note - ref) semitones; PLAY E4 "pitch
@@ -24,8 +28,10 @@
 -- amounts (RANDOM page): positive = spray the param toward random per grain
 -- (pitch: +-24 st), negative = peak near the knob value, 0 = off
 --
--- clock sync (needs latch on): delay mode tempo = norns bpm x subdivision;
--- granular mode = clocked divider (hardware SEED-jack clocking)
+-- clock sync: with the latch on, the beats clock the DSP (delay tempo =
+-- bpm x subdivision, granular divider - the hardware's clocked SEED jack);
+-- with the latch off, every beat fires one seed trigger (the hardware's
+-- patched-SEED trigger behavior)
 --
 -- all params (incl. freeze/latch) live in the PARAMS menu; MIDI mapping
 -- works there like any norns script.
@@ -34,10 +40,11 @@ engine.name = "Beads"
 
 local beadse = include "lib/beads_engine"
 local musicutil = require "musicutil"
+local fileselect = include "lib/fileselect"
 
 local STATS = { reserve = 1.0, dmode = 0.0 }
 
-local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "CLOCK", "SETUP", "MIDI", "SYNTH" }
+local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "CLOCK", "SETUP", "TAPE", "MIDI", "SYNTH" }
 local page = 1
 local seed_down = false
 local dirty = true
@@ -60,6 +67,12 @@ local midi_stack = {}   -- held notes, most recent last
 local last_note = nil   -- persists after release: a CV keyboard holds voltage
 local bend_st = 0.0
 local last_cv_sent = nil
+
+-- tape-file player (TAPE page): a loaded file streams into the granulator
+-- input, summed with the hardware line-in
+local tape_file = nil
+local tape_name = ""
+local tape_playing = false
 
 local function push_pitch_cv()
   if params:get("midi_pitch") ~= 2 then
@@ -200,8 +213,9 @@ end
 
 local function start_sync()
   stop_sync()
-  -- clocked SEED behavior needs the latch on, like the hardware
-  if params:get("sync") == 2 and params:get("latch") == 1 then
+  -- beats drive the seed input; the latch selects the mode (clocked
+  -- divider when latched, one trigger per beat when not)
+  if params:get("sync") == 2 then
     sync_last = os.clock()
     sync_clock = clock.run(function()
       while true do
@@ -219,7 +233,7 @@ end
 local sync_restart_at = 0
 
 local function sync_watchdog()
-  if params:get("sync") == 2 and params:get("latch") == 1 then
+  if params:get("sync") == 2 then
     local now = os.clock()
     if now - sync_last > (60 / safe_bpm()) * 4 + 2
         and now - sync_restart_at > 3 then
@@ -305,11 +319,15 @@ local function density_string(d)
     -- label follows the printed ring)
     return delay_division(d)
   end
+  -- clocked reads as the mode, not a rate: latched = division, unlatched
+  -- = one seed per beat
+  if params:get("sync") == 2 then
+    return params:get("latch") == 1 and "div" or "beats"
+  end
   local r = density_rate(d)
   if r > 0 then
     return string.format("%s%d hz", d > 0.52 and "~" or "", math.floor(r + 0.5))
   end
-  -- deadband: latched = no grains (manual), unlatched = manual taps
   return params:get("latch") == 1 and "silent" or "tap"
 end
 
@@ -403,22 +421,27 @@ local function grain_sim_tick(dt, buf_s, frozen)
     return
   end
   local rate = density_rate(params:get("density"))
-  if STATS.dmode < 0.5 and rate > 0
-      and (params:get("latch") == 1 or seed_down) then
-    if params:get("sync") == 2 and params:get("latch") == 1 then
-      -- clocked divider: one trigger opportunity per received beat,
-      -- gated by the density probability above the deadband
+  if STATS.dmode < 0.5 then
+    local latch = params:get("latch") == 1
+    local clocked = params:get("sync") == 2
+    if clocked then
+      -- beats drive the seed input: latched = the clocked divider (density
+      -- is the subdivision; above the deadband each beat passes with the
+      -- divider probability), unlatched = every beat fires one seed, like
+      -- triggers into the hardware SEED jack
       while pending_pulses > 0 do
         pending_pulses = pending_pulses - 1
         local d = params:get("density")
-        if d > 0.52 then
+        if latch and d > 0.52 then
           local p = (d - 0.52) * 2.15
           if math.random() < p * p then spawn_grain() end
         else
           spawn_grain()
         end
       end
-    else
+    end
+    if rate > 0 and ((latch and not clocked) or seed_down) then
+      -- free-running gate: latched without clock, or the seed button held
       spawn_acc = spawn_acc + rate * dt
       while spawn_acc >= 1 do
         spawn_acc = spawn_acc - 1
@@ -426,6 +449,8 @@ local function grain_sim_tick(dt, buf_s, frozen)
       end
       if spawn_acc > 2 then spawn_acc = 2 end
     end
+  else
+    pending_pulses = 0   -- delay mode: the DSP's delay clock eats the beats
   end
   -- grain kinematics: the material span is glued to the tape (anchors
   -- recede at one loop per buf_s while the tape runs); a grain dies at
@@ -456,7 +481,8 @@ local function header()
   screen.text(pages[page])
   local tag = ""
   if params:get("freeze") == 1 then tag = tag .. " FRZ" end
-  if STATS.dmode > 0.5 then tag = tag .. " TAPE" end
+  if STATS.dmode > 0.5 then tag = tag .. " DELAY" end
+  if tape_playing then tag = tag .. " TAPE" end
   if seed_down then tag = tag .. " SEED" end
   if params:get("latch") == 1 then tag = tag .. " LATCH" end
   if params:get("sync") == 2 then tag = tag .. " CLK" end
@@ -542,6 +568,18 @@ function init()
   p_write.time = 1 / 8
   p_write:start()
 
+  -- tape-file player state (TAPE page rows + header tag)
+  local p_bufplay = poll.set("beads_bufplay")
+  p_bufplay.callback = function(v)
+    local on = v > 0.5
+    if on ~= tape_playing then
+      tape_playing = on
+      dirty = true
+    end
+  end
+  p_bufplay.time = 1 / 2
+  p_bufplay:start()
+
   params:default()
   params:bang()
 
@@ -603,6 +641,7 @@ end
 function cleanup()
   pcall(function() if redrawer then clock.cancel(redrawer) end end)
   pcall(stop_sync)
+  pcall(function() engine.buffer_play(0) end)
 end
 
 function enc(n, d)
@@ -626,6 +665,19 @@ function enc(n, d)
     return
   end
   if page == 7 then
+    -- TAPE: E2 level, E3 loop/once, E4 play/stop
+    if n == 2 then
+      params:delta("tp_level", d)
+    elseif n == 3 then
+      params:set("tp_loop", util.clamp(params:get("tp_loop") + d, 1, 2))
+    elseif n == 4 and d ~= 0 then
+      tape_playing = not tape_playing
+      engine.buffer_play(tape_playing and 1 or 0)
+    end
+    dirty = true
+    return
+  end
+  if page == 8 then
     -- MIDI: E2 note pitch, E3 reference note, E4 bend range
     if n == 2 then
       params:set("midi_pitch", d > 0 and 2 or 1)
@@ -637,7 +689,7 @@ function enc(n, d)
     dirty = true
     return
   end
-  if page == 8 then
+  if page == 9 then
     -- SYNTH: E2 wavetable synth mode, E3 bank (= FEEDBACK), E4 gate out
     if n == 2 then
       params:set("synth", d > 0 and 2 or 1)
@@ -658,6 +710,24 @@ function enc(n, d)
 end
 
 function key(n, z)
+  if n == 3 and z == 1 and page == 7 then
+    -- TAPE page: K3 opens the file browser (fileselect reroutes the keys
+    -- while it is open). A picked file loads and starts feeding the
+    -- granulator input; picking another while playing switches live.
+    fileselect.enter(_path.tape, function(file)
+      if file then
+        tape_file = file
+        tape_name = string.match(file, "[^/]+$") or file
+        engine.buffer_load(file)
+        if not tape_playing then
+          tape_playing = true
+          engine.buffer_play(1)
+        end
+      end
+      dirty = true
+    end, "audio")
+    return
+  end
   if n == 2 and z == 1 then
     params:set("freeze", params:get("freeze") == 1 and 0 or 1)
     dirty = true
@@ -935,7 +1005,7 @@ function redraw()
           and (string.format("%d", math.floor(safe_bpm() + 0.5)) .. " bpm")
           or "off" },
       { "E3 subdiv", sync_div_label() },
-      { "E4 latch", params:get("latch") == 1 and "on (free run)" or "off (gated)" },
+      { "E4 latch", params:get("latch") == 1 and "on (free run)" or "off (trig)" },
     }
     for i, r in ipairs(rows) do
       local y = 22 + (i - 1) * 12
@@ -948,7 +1018,7 @@ function redraw()
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("sync needs latch")
+    screen.text("latch off: beat = seed")
   elseif page == 6 then
     -- SETUP
     local rows = {
@@ -969,6 +1039,32 @@ function redraw()
     screen.move(0, 62)
     screen.text("K2 freeze  K3 seed")
   elseif page == 7 then
+    -- TAPE: file player feeding the granulator input
+    local rows = {
+      { "E2 level", string.format("%.2fx", params:get("tp_level")) },
+      { "E3 loop", params:get("tp_loop") == 2 and "loop" or "once" },
+      { "E4 play", tape_playing and "playing" or "stopped" },
+    }
+    for i, r in ipairs(rows) do
+      local y = 22 + (i - 1) * 12
+      screen.level(4)
+      screen.move(0, y)
+      screen.text(r[1])
+      screen.level(15)
+      screen.move(52, y)
+      screen.text(r[2])
+    end
+    if tape_name ~= "" then
+      screen.level(4)
+      screen.move(0, 56)
+      local nm = tape_name
+      if #nm > 25 then nm = ".." .. string.sub(nm, -23) end
+      screen.text(nm)
+    end
+    screen.level(4)
+    screen.move(0, 62)
+    screen.text("K3 file  E4 play/stop")
+  elseif page == 8 then
     -- MIDI: notes stand in for the hardware PITCH CV jack
     local ref = params:get("midi_ref")
     local rows = {

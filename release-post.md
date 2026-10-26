@@ -38,6 +38,10 @@ nothing is patched in.
 - The no-input wavetable synth mode (Plaits' raw banks through the same
   granular engine) is included as a manual switch, with FEEDBACK doubling
   as the 12-bank wavetable selector and an optional gate output.
+- A TAPE-page file player feeds any audio file straight into the
+  granulator's input — norns' own TAPE menu plays to the output mix only,
+  so this is how a recording gets processed like a tape deck plugged into
+  the module.
 - The PLAY page is a live view of the granulator: every grain drawn at its
   true position and size against the tape loop, moving, with the splice
   dot and reels phase-locked to the buffer.
@@ -84,8 +88,9 @@ removal) are in the [README](https://github.com/schrab/beads-norns).
 Pages: **PLAY** (time, pitch, pitch amount — live grain view), **GRAIN**
 (density, size, shape), **RANDOM** (the attenurandomizers), **MIX**
 (feedback, reverb, dry/wet), **CLOCK** (sync, subdivision, seed latch),
-**SETUP** (media, channels, input gain), **MIDI** (note pitch, reference
-note, bend range), **SYNTH** (synth mode, bank, gate output).
+**SETUP** (media, channels, input gain), **TAPE** (file player: K3 opens
+the browser, E4 play/stop, level, once/loop), **MIDI** (note pitch,
+reference note, bend range), **SYNTH** (synth mode, bank, gate output).
 
 **Start here:** hold `K3` (or leave the seed latch on — it defaults on)
 to open the grain gate, feed something into the inputs, and turn GRAIN's
@@ -115,8 +120,16 @@ the hardware manual, and everything was tested by ear on the device.
 ## Changelog
 
 <details>
-<summary>Versions | last update: 26 Oct 2026</summary>
+<summary>Versions | last update: 27 Oct 2026</summary>
 
+<p><code>1.1.0</code></p>
+<ul>
+<li>TAPE page: file player feeding the granulator input (pick a file, it
+plays into the engine like a tape deck into the module).</li>
+<li>Clock sync now works with the seed latch OFF: every norns beat fires
+one seed trigger (the hardware's patched-SEED trigger behavior); latch on
+keeps the clocked divider / synced delay tempo.</li>
+</ul>
 <p><code>1.0.0</code></p>
 <ul>
 <li>Initial release: full Beads DSP (granular / delay / freeze / reverb),

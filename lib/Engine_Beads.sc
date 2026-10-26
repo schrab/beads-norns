@@ -8,10 +8,12 @@
 //   feedback drywet reverb gain freeze seed latch media mono sync
 //   pitch_cv (active, semitones) synth gate
 //   clock (no args - one beat pulse, counter pattern)
+//   buffer_load (path) buffer_play (0/1) buffer_loop (0/1) buffer_level (0..2)
 // Polls:
 //   beads_reserve  - 0..1, fraction of buffer before oldest audio is lost
 //   beads_write    - 0..1, write-head position in the recorded region
 //   beads_dmode    - 0|1, delay (tape) mode engaged (SIZE at max)
+//   beads_bufplay  - 0|1, tape-file player state
 
 Engine_Beads : CroneEngine {
 
@@ -19,6 +21,11 @@ Engine_Beads : CroneEngine {
 	var reserveBus, writeBus, dmodeBus;
 	var clockCount = 0;
 	var <reserve, <writePos, <delayMode;
+	// tape-file player: plays a loaded file into the engine's input buses
+	// (summed with the hardware line-in), so a norns TAPE recording can be
+	// fed to the granulator like a tape deck into the module's input
+	var bufSynth, buf, bufPlaying = false, bufLevel = 1.0, bufLoop = 1;
+	var bufEndRoutine;
 
 	alloc {
 		var def, sr;
@@ -69,6 +76,22 @@ Engine_Beads : CroneEngine {
 
 		synth = Synth.new("beads_engine", [], context.xg);
 
+		// the player writes into context.in_b - the same private buses the
+		// \adc routers fill with the hardware line-in - so sources SUM. It
+		// must sit BEFORE the engine synth in node order (addToHead) or the
+		// engine would read the bus before this block's contribution.
+		SynthDef("beads_bufplay2", { arg buf = 0, level = 1.0, loop = 1;
+			var play = PlayBuf.ar(2, buf, BufRateScale.kr(buf), loop: loop);
+			Out.ar(context.in_b[0].index, play[0] * level);
+			Out.ar(context.in_b[1].index, play[1] * level);
+		}).add;
+		SynthDef("beads_bufplay1", { arg buf = 0, level = 1.0, loop = 1;
+			var play = PlayBuf.ar(1, buf, BufRateScale.kr(buf), loop: loop);
+			Out.ar(context.in_b[0].index, play * level);
+			Out.ar(context.in_b[1].index, play * level);
+		}).add;
+		context.server.sync;
+
 		this.addCommand("time", "f", { arg msg; synth.set(\time, msg[1]) });
 		this.addCommand("time_amt", "f", { arg msg; synth.set(\timeAmt, msg[1]) });
 		this.addCommand("size", "f", { arg msg; synth.set(\size, msg[1]) });
@@ -104,6 +127,31 @@ Engine_Beads : CroneEngine {
 			synth.set(\clockCount, clockCount);
 		});
 
+		// ---- tape-file player ----
+		this.addCommand("buffer_load", "s", { arg msg;
+			var path = msg[1].asString;
+			this.stopBufferPlay;
+			Buffer.read(context.server, path, action: { arg newBuf;
+				var old;
+				if(buf.notNil) { old = buf };
+				buf = newBuf;
+				if(old.notNil) { old.free };
+			});
+		});
+		this.addCommand("buffer_play", "f", { arg msg;
+			if(msg[1] > 0.5) { this.startBufferPlay } { this.stopBufferPlay };
+		});
+		// loop mode is an init arg of PlayBuf - restart the player on change
+		this.addCommand("buffer_loop", "f", { arg msg;
+			if(msg[1] > 0.5) { bufLoop = 1 } { bufLoop = 0 };
+			if(bufPlaying) { this.startBufferPlay };
+		});
+		this.addCommand("buffer_level", "f", { arg msg;
+			bufLevel = msg[1];
+			if(bufPlaying && bufSynth.notNil) { bufSynth.set(\level, bufLevel) };
+		});
+		this.addPoll("beads_bufplay", { if(bufPlaying) { 1 } { 0 } });
+
 		// getSynchronous can return nil while the server is busy; guard it
 		this.addPoll("beads_reserve", {
 			var v = reserveBus.getSynchronous;
@@ -119,7 +167,42 @@ Engine_Beads : CroneEngine {
 		});
 	}
 
+	startBufferPlay {
+		if(buf.isNil) { ^this };
+		this.stopBufferPlay;
+		// loop is an init arg: 1 = loop, 0 = stop at end of file
+		bufSynth = Synth(
+			if(buf.numChannels > 1, "beads_bufplay2", "beads_bufplay1"),
+			[\buf, buf.bufnum, \level, bufLevel, \loop, bufLoop],
+			context.xg, \addToHead);
+		bufPlaying = true;
+		if(bufLoop < 0.5) {
+			// 'once': schedule the stop at the file's real playback length
+			// (its own rate scaled to the server rate by BufRateScale)
+			var dur = buf.duration * (buf.sampleRate / context.server.sampleRate);
+			bufEndRoutine = Routine {
+				dur.wait;
+				if(bufPlaying) { this.stopBufferPlay };
+			};
+			SystemClock.play(bufEndRoutine);
+		};
+	}
+
+	stopBufferPlay {
+		if(bufEndRoutine.notNil) {
+			bufEndRoutine.stop;
+			bufEndRoutine = nil;
+		};
+		if(bufSynth.notNil) {
+			bufSynth.free;
+			bufSynth = nil;
+		};
+		bufPlaying = false;
+	}
+
 	free {
+		this.stopBufferPlay;
+		if(buf.notNil) { buf.free; buf = nil };
 		synth.free;
 		reserveBus.free;
 		writeBus.free;

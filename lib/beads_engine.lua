@@ -176,6 +176,26 @@ function beadse.add_params()
     end,
   }
 
+  params:add_separator("beads_tape", "TAPE")
+
+  -- tape-file player: streams a loaded audio file into the granulator's
+  -- input (summed with the hardware line-in). The norns TAPE menu only
+  -- plays to the output mix - this is the buffer-feed path the hardware
+  -- never had; record the file into the loop by unfreezing while it plays.
+  params:add {
+    type = "control", id = "tp_level", name = "tape level",
+    controlspec = controlspec.new(0, 2, "lin", 0.02, 1, "", 0.01),
+    formatter = function(param)
+      return string.format("%.2fx", param:get())
+    end,
+    action = function(x) engine.buffer_level(x) end,
+  }
+  params:add {
+    type = "option", id = "tp_loop", name = "tape loop",
+    options = { "once", "loop" }, default = 2,
+    action = function(x) engine.buffer_loop(x - 1) end,
+  }
+
   params:add_separator("beads_midi", "MIDI")
 
   -- MIDI notes stand in for the hardware PITCH CV jack (1V/oct): notes

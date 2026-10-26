@@ -559,7 +559,7 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
 
   if (clock_count != unit->clock_count_prev_) {
     unit->clock_count_prev_ = clock_count;
-    if (sync_now && latch_now && adapter_media) {
+    if (sync_now && adapter_media) {
       // the pulse becomes one host sample in the ring; the superblock
       // maps it to an engine frame
       if (unit->pending_pulse_count_ < 4) {
@@ -685,7 +685,7 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
       unit->freeze_buf_[i] = freeze_now;
     }
     const stmlib::GateFlags* seed_input = nullptr;
-    if (sync_now && latch_now) {
+    if (sync_now) {
       const bool pulse = unit->clock_pulse_;
       for (int i = 0; i < inNumSamples; ++i) {
         unit->seed_buf_[i] = (pulse && i == 0)
@@ -734,7 +734,7 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
 
     while (unit->in_len_[0] >= super) {
       BeadsUGen_Superblock(
-          unit, super, frames, sync_now && latch_now, seed_state, d, p, m,
+          unit, super, frames, sync_now, seed_state, d, p, m,
           freeze_now);
     }
 
@@ -759,11 +759,12 @@ static void BeadsUGen_next(BeadsUGen *unit, int inNumSamples) {
       // Seed input: NULL when unsynchronized (exactly like the firmware with
       // an unpatched jack - the button state carries gating and tap tempo).
       // When clock sync is on, emit a 1-sample clock pulse on the counter
-      // change: LOCKED + external input engages RenderDivider (granular) /
-      // the synchronized DelayClock (delay mode), matching the hardware's
-      // clocked-SEED behavior.
+      // change. LOCKED + external input engages RenderDivider (granular) /
+      // the synchronized DelayClock (delay mode); with the latch OFF the
+      // same pulses take the firmware's patched-SEED-jack trigger path
+      // (the merged button|external gate fires a grain per pulse).
       const stmlib::GateFlags* seed_input = nullptr;
-      if (sync_now && latch_now) {
+      if (sync_now) {
         stmlib::GateFlags* seed_flags = unit->seed_buf_;
         const bool pulse = unit->clock_pulse_;
         for (int i = 0; i < n; ++i) {
