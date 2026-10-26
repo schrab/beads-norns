@@ -42,6 +42,14 @@ local beadse = include "lib/beads_engine"
 local musicutil = require "musicutil"
 local fileselect = include "lib/fileselect"
 
+-- the matrix mod singleton (optional): needed to validate which sources
+-- are STILL mapped to our params - matrix leaves stale entries in a
+-- param's .modulation after an unmap
+local mm_ok, mm = pcall(require, 'matrix/lib/matrix')
+if not mm_ok or type(mm) ~= 'table' or mm.matrix == nil then
+  mm_ok, mm = false, nil
+end
+
 local STATS = { reserve = 1.0, dmode = 0.0 }
 
 local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "CLOCK", "SETUP", "TAPE", "MIDI", "SYNTH" }
@@ -432,6 +440,33 @@ local function spawn_grain()
   }
 end
 
+-- matrix-mod modulation on the seed param: an entry only counts while the
+-- mapping still exists in the matrix table (matrix's unmap removes
+-- self.matrix[src][param] but leaves the stale value in p.modulation)
+local function seed_mod_compute(p)
+  local m = p and p.modulation
+  if not (m and mm_ok) then return false end
+  for src_id, v in pairs(m) do
+    local mapping = mm.matrix[src_id]
+    if mapping and mapping[p.id] and (v or 0) > 0 then
+      return true
+    end
+  end
+  return false
+end
+
+local function seed_mod_apply(on)
+  if on == seed_mod then return end
+  seed_mod = on
+  -- the DSP registers a tap on the gate's OFF->ON edge (one grain in the
+  -- density deadband, tap tempo in delay mode) - mirror that
+  if on and density_rate(params:get("density")) == 0 then
+    spawn_grain()
+  end
+  pcall(function() engine.seed((seed_down or seed_mod) and 1 or 0) end)
+  dirty = true
+end
+
 local function grain_sim_tick(dt, buf_s, frozen)
   -- wavetable synth: no tape, no grains to simulate
   if params:get("synth") == 2 then
@@ -634,28 +669,18 @@ function init()
   -- deferring a CLASS bang - and Binary:bang fires action(self.value) with
   -- the raw user value (0), so the modulation would never open the seed
   -- gate (matrix patches number:bang but not binary:bang). Wrap the seed
-  -- param's bang: recompute the modulation component synchronously (it is
-  -- already updated in matrix:set before the deferred bang), then let the
-  -- class bang run the action path, which pushes the combined gate.
+  -- param's bang: recompute the modulation component (synchronous in
+  -- matrix:set), then let the class bang run the action path, which pushes
+  -- the combined gate. A low-rate poll in the redrawer catches unmapping
+  -- while a gate is high (unmap fires no bang).
   local seed_param = params:lookup_param("seed_btn")
   local seed_class_bang = seed_param.bang
   seed_param.bang = function(self)
-    local m = self.modulation
-    local on = false
-    if m then
-      for _, v in pairs(m) do
-        if (v or 0) > 0 then on = true break end
-      end
-    end
-    if on ~= seed_mod then
-      seed_mod = on
-      -- the DSP registers a tap on the gate's OFF->ON edge (one grain in
-      -- the density deadband, tap tempo in delay mode) - mirror that
-      if on and density_rate(params:get("density")) == 0 then
-        spawn_grain()
-      end
-    end
+    seed_mod_apply(seed_mod_compute(self))
     seed_class_bang(self)
+  end
+  local function seed_mod_poll()
+    seed_mod_apply(seed_mod_compute(seed_param))
   end
 
   params:default()
@@ -672,6 +697,7 @@ function init()
       ticks = ticks + 1
       if ticks % 30 == 0 then midi_connect_all() end
       sync_watchdog()
+      seed_mod_poll()
       local now = os.clock()
       local dt = now - last_tick
       last_tick = now
