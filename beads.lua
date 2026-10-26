@@ -348,12 +348,8 @@ local function density_string(d)
   return params:get("latch") == 1 and "silent" or "tap"
 end
 
--- exact expected concurrent grain count (rate x duration), printed in
--- the loop - no ">12" fallback, the number is always real
-local function n_exp_grains(rate, dur)
-  local n = rate > 0 and math.floor(rate * dur + 0.5) or 0
-  return n .. " grains"
-end
+-- the live grain count (printed in the loop) is just #grains - it reads 0
+-- whenever the seed gate is closed and saturates at the DSP's 32-grain pool
 
 -- current loop length in seconds (media + mono)
 local function buf_seconds()
@@ -396,7 +392,7 @@ local function randomized_value(base, amt, range, clamp01)
 end
 
 local function spawn_grain()
-  if #grains >= 16 then return end
+  if #grains >= 32 then return end   -- the DSP's grain pool (GranularPlayer<..., 32>)
   local buf_s = buf_seconds()
   local frozen = params:get("freeze") == 1
   local size_k = randomized_value(params:get("size"), params:get("size_amt"), 1, true)
@@ -846,8 +842,6 @@ function redraw()
       screen.line_width(1)
     end
 
-    local rate = density_rate(params:get("density"))
-    local dur = grain_dur_s(params:get("size"))
     local now = os.clock()
 
     -- transport reels: a 6-notch hub in each end cap, PHASE-LOCKED to the
@@ -888,7 +882,6 @@ function redraw()
       -- for forward grains, older for reverse; the stylus (bright pixel)
       -- sweeps the span at the playback ratio. Brightness = envelope.
       local buf_s = buf_seconds()
-      local drawn = 0
       for _, g in ipairs(grains) do
         local age = now - g.born
         local t = age / g.dur
@@ -906,14 +899,14 @@ function redraw()
             screen.level(math.floor(6 + 9 * env))
             screen.rect(util.round(sx), util.round(sy), 1, 1)
             screen.fill()
-            drawn = drawn + 1
           end
         end
       end
-      -- exact expected concurrent count, centered in the loop
-      screen.level(drawn > 0 and 15 or 4)
+      -- live count, centered in the loop: 0 when the seed gate is closed,
+      -- saturated at the DSP's 32-grain pool
+      screen.level(#grains > 0 and 15 or 4)
       screen.move(bx + bw / 2, cy + 3)
-      screen.text_center(n_exp_grains(rate, dur))
+      screen.text_center(#grains .. " grains")
     end
 
     -- the static record head: a ^ caret sitting on the loop

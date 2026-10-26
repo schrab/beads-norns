@@ -102,9 +102,10 @@ toward older; a bright stylus pixel sweeps the span at the playback ratio
 sliding away). Spawns re-roll time/size/pitch/shape through the same
 per-trigger randomization as the module's attenurandomizers, with the DSP's
 head-crossing trims and STOP policy (a grain that reaches the head dies).
-Brightness follows the grain's envelope (shape). The exact expected
-concurrent count (rate × duration, e.g. "16 grains") is printed inside the
-loop. Two 6-notch reels sit in the end caps, phase-locked to the splice:
+Brightness follows the grain's envelope (shape). The **live grain count**
+is printed inside the loop — the number of grains actually flying right
+now (0 whenever the seed gate is closed, saturated at the DSP's 32-grain
+pool). Two 6-notch reels sit in the end caps, phase-locked to the splice:
 one rotation per loop pass, notch up when the splice passes the head, and
 everything stops on freeze. Grains only appear when the gate is open (latch
 on, or K3 held), the density deadband taps spawn a grain per press, and
