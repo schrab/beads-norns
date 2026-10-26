@@ -74,6 +74,23 @@ local tape_file = nil
 local tape_name = ""
 local tape_playing = false
 
+local function load_tape_file()
+  -- fileselect reroutes the screen keys (or the menu handlers, when opened
+  -- from PARAMS) while it is open, and restores them after
+  fileselect.enter(_path.tape, function(file)
+    if file then
+      tape_file = file
+      tape_name = string.match(file, "[^/]+$") or file
+      engine.buffer_load(file)
+      if not tape_playing then
+        tape_playing = true
+        engine.buffer_play(1)
+      end
+    end
+    dirty = true
+  end, "audio")
+end
+
 local function push_pitch_cv()
   if params:get("midi_pitch") ~= 2 then
     if last_cv_sent ~= false then
@@ -580,9 +597,16 @@ function init()
   p_bufplay.time = 1 / 2
   p_bufplay:start()
 
-  params:default()
-  params:bang()
-
+  -- hooks BEFORE params:bang() so the actions reach them at init
+  beadse.on_seed = function(x)
+    seed_down = x == 1
+    -- deadband manual tap = one grain trigger
+    if x == 1 and density_rate(params:get("density")) == 0 then
+      spawn_grain()
+    end
+    dirty = true
+  end
+  beadse.on_load_file = load_tape_file
   beadse.on_sync = function() start_sync() dirty = true end
   beadse.on_latch = function() start_sync() dirty = true end
   beadse.on_midi_pitch = function() push_pitch_cv() dirty = true end
@@ -602,6 +626,10 @@ function init()
     seam_have = false
     dirty = true
   end
+
+  params:default()
+  params:bang()
+
   midi_connect_all()
   start_sync()
 
@@ -711,33 +739,18 @@ end
 
 function key(n, z)
   if n == 3 and z == 1 and page == 7 then
-    -- TAPE page: K3 opens the file browser (fileselect reroutes the keys
-    -- while it is open). A picked file loads and starts feeding the
-    -- granulator input; picking another while playing switches live.
-    fileselect.enter(_path.tape, function(file)
-      if file then
-        tape_file = file
-        tape_name = string.match(file, "[^/]+$") or file
-        engine.buffer_load(file)
-        if not tape_playing then
-          tape_playing = true
-          engine.buffer_play(1)
-        end
-      end
-      dirty = true
-    end, "audio")
+    -- TAPE page: K3 opens the file browser. A picked file loads and
+    -- starts feeding the granulator input; picking another while
+    -- playing switches live.
+    load_tape_file()
     return
   end
   if n == 2 and z == 1 then
     params:set("freeze", params:get("freeze") == 1 and 0 or 1)
     dirty = true
   elseif n == 3 then
-    seed_down = z == 1
-    engine.seed(z)
-    -- deadband manual tap = one grain trigger
-    if z == 1 and density_rate(params:get("density")) == 0 then
-      spawn_grain()
-    end
+    -- routed through the param so the menu state and MIDI mapping agree
+    params:set("seed_btn", z)
     dirty = true
   end
 end

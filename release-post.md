@@ -125,7 +125,11 @@ the hardware manual, and everything was tested by ear on the device.
 <p><code>1.1.0</code></p>
 <ul>
 <li>TAPE page: file player feeding the granulator input (pick a file, it
-plays into the engine like a tape deck into the module).</li>
+plays into the engine like a tape deck into the module). File browser
+opens from the page (K3) or the menu (PARAMS &gt; TAPE &gt; load tape
+file).</li>
+<li>Seed is now a param too (SETUP &gt; seed (hold), momentary) — fire it
+from the menu or MIDI-map it to a CC.</li>
 <li>Clock sync now works with the seed latch OFF: every norns beat fires
 one seed trigger (the hardware's patched-SEED trigger behavior); latch on
 keeps the clocked divider / synced delay tempo.</li>

@@ -159,6 +159,17 @@ function beadse.add_params()
     behavior = "toggle", default = 0,
     action = function(x) engine.freeze(x) end,
   }
+  -- the seed BUTTON as a param: momentary (menu: hold K3 on the row;
+  -- MIDI mapping: a CC holds the gate open). K3 on the screen routes
+  -- through this so the menu state, viz and mapping all stay in sync.
+  params:add {
+    type = "binary", id = "seed_btn", name = "seed (hold)",
+    behavior = "momentary", default = 0,
+    action = function(x)
+      engine.seed(x)
+      if beadse.on_seed then beadse.on_seed(x) end
+    end,
+  }
   params:add {
     type = "binary", id = "latch", name = "seed latch",
     behavior = "toggle", default = 1,
@@ -182,6 +193,18 @@ function beadse.add_params()
   -- input (summed with the hardware line-in). The norns TAPE menu only
   -- plays to the output mix - this is the buffer-feed path the hardware
   -- never had; record the file into the loop by unfreezing while it plays.
+  params:add {
+    -- opens the file browser (also reachable via K3 on the TAPE screen
+    -- page); norns 3.0 has no file param type, so this is the menu entry.
+    -- Trigger:bang() also fires on every params:bang() (script init), so
+    -- only act when the user actually fired it from the menu
+    type = "trigger", id = "tp_load", name = "load tape file",
+    action = function()
+      if _menu ~= nil and _menu.mode and beadse.on_load_file then
+        beadse.on_load_file()
+      end
+    end,
+  }
   params:add {
     type = "control", id = "tp_level", name = "tape level",
     controlspec = controlspec.new(0, 2, "lin", 0.02, 1, "", 0.01),
