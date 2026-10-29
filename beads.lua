@@ -1087,7 +1087,7 @@ function redraw()
       { "feedback", params:get("feedback") },
       { "reverb", params:get("rvb") },
       { "dry/wet", params:get("drywet") },
-      { "in gain", params:get("gain") },
+      { "in gain", params:get("gain") / 255 },
     }
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
