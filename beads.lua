@@ -629,7 +629,9 @@ local function bar(x, y, w, v, level)
   screen.rect(x, y, w, 5)
   screen.stroke()
   screen.level(level or 10)
-  screen.rect(x + 1, y + 1, math.max(0, util.round((w - 2) * v)), 3)
+  -- fill covers the top frame line (no dim gap row above it) and sits
+  -- on the bottom line; whole pixels only
+  screen.rect(x + 1, y, math.max(0, util.round((w - 2) * v)), 4)
   screen.fill()
 end
 
@@ -641,9 +643,9 @@ local function bar_bi(x, y, w, v, level)
   screen.level(level or 10)
   local half = util.round((w / 2 - 1) * math.abs(v))
   if v >= 0 then
-    screen.rect(c, y + 1, half, 3)
+    screen.rect(c, y, half, 4)
   else
-    screen.rect(c - half, y + 1, half, 3)
+    screen.rect(c - half, y, half, 4)
   end
   screen.fill()
   screen.level(4)
@@ -905,7 +907,7 @@ function redraw()
     -- read brighter than the straight lines; in wavetable synth mode
     -- there is no tape - the transport view is replaced by synth status
     if not synth_mode then
-    screen.aa(0)
+    screen.aa(1)
     screen.line_width(1)
     screen.level(2 + math.floor(STATS.reserve * 4))
     local segs = 96
