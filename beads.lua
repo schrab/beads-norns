@@ -362,7 +362,6 @@ end
 local function draw_envelope(x0, y0, w, h, s, level)
   local n = 96
   screen.aa(1)
-  screen.line_width(1.5)
   -- closed contour: attack edge up the left, the curve, release edge down
   -- the right - so instant attack/release (shape near 0) still shows both
   -- vertical lines instead of a bare horizontal line. Cairo keeps the path
@@ -376,7 +375,9 @@ local function draw_envelope(x0, y0, w, h, s, level)
   screen.line(x0 + w, y0 + h)
   screen.level(level and (level > 6 and 3 or 2) or 2)
   screen.fill()
-  screen.level(level or 10)
+  -- crisp 1 px bright contour on top of the dark fill
+  screen.line_width(1)
+  screen.level(level and (level > 6 and 15 or 8) or 10)
   screen.stroke()
   screen.aa(0)
   screen.line_width(1)
