@@ -789,6 +789,15 @@ function init()
       grain_sim_tick(dt, buf_s, frozen)
       -- PLAY page is live: grains spawn, drift and die continuously
       if page == 1 then dirty = true end
+      -- debug helper: touch /tmp/dbgshot -> one screenshot to dust/data
+      if ticks % 15 == 0 then
+        local have = false
+        pcall(function() have = util.file_exists("/tmp/dbgshot") end)
+        if have then
+          pcall(function() os.remove("/tmp/dbgshot") end)
+          pcall(function() screen.export_screenshot("dbg") end)
+        end
+      end
       if dirty then
         dirty = false
         -- keep the loop alive through a bad frame (e.g. clock mid-change)
@@ -1022,20 +1031,30 @@ function redraw()
           end
         end
       end
-      -- live rate + count: fixed-width fields at a fixed left anchor, so
-      -- the text never wiggles as values change ("131 Hz / 13 grains")
+      -- live rate + count, drawn separately at fixed RIGHT anchors: the
+      -- the font's "1" glyph is narrower than other digits, so ANY text
+      -- combining number+label shifts when digits change. Numbers and
+      -- labels are therefore separate draws with hard-pinned anchors:
+      -- numbers right-aligned at a fixed edge (grow leftward), labels
+      -- left-aligned at a fixed x. Nothing on screen can move.
       local d = params:get("density")
       local rate_hz = density_rate(d)
-      local txt
-      if params:get("sync") == 2 or rate_hz <= 0 then
-        txt = string.format("%2d grains", #grains)
-      else
-        txt = string.format("%3d Hz / %2d grains",
-          math.floor(rate_hz + 0.5), #grains)
-      end
       screen.level(#grains > 0 and 15 or 4)
-      screen.move(bx + 24, cy + 3)
-      screen.text(txt)
+      if params:get("sync") == 2 or rate_hz <= 0 then
+        screen.move(bx + 68, cy + 3)
+        screen.text_right(string.format("%d", #grains))
+        screen.move(bx + 72, cy + 3)
+        screen.text("grains")
+      else
+        screen.move(bx + 36, cy + 3)
+        screen.text_right(string.format("%d", math.floor(rate_hz + 0.5)))
+        screen.move(bx + 40, cy + 3)
+        screen.text("Hz")
+        screen.move(bx + 68, cy + 3)
+        screen.text_right(string.format("%d", #grains))
+        screen.move(bx + 72, cy + 3)
+        screen.text("grains")
+      end
     end
 
     -- the static record head: a ^ caret sitting on the loop
