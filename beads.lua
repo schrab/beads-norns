@@ -212,14 +212,12 @@ local function enc_target(n)
   return defs[idx][1], defs[idx][2]
 end
 
--- row marker + active state for the redraw (i = param stack index)
-local function row_state(i)
+-- active state for the redraw (i = param stack index): active rows are
+-- bright, the rest dim - no encoder text tags on the rows
+local function row_active(i)
   local w1 = bank[page] == 1 and 1 or 3
   local w2 = bank[page] == 1 and 2 or (#PAGE_PARAMS[page] >= 4 and 4 or nil)
-  local active = i == w1 or i == w2
-  local tag = i == w1 and "E2 " or (w2 and i == w2 and "E3 " or "")
-  if tag == "" and enc4_seen and i == #PAGE_PARAMS[page] then tag = "E4 " end
-  return tag, active
+  return i == w1 or i == w2
 end
 
 -- row baseline: 4-row pages tighten the leading so the footer still fits
@@ -1076,10 +1074,10 @@ function redraw()
     }
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
-      local tag, active = row_state(i)
+      local active = row_active(i)
       screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(tag .. r[1])
+      screen.text(r[1])
       bar_bi(64, y - 5, 60, r[2], active and 10 or 4)
     end
     screen.level(4)
@@ -1094,10 +1092,10 @@ function redraw()
     }
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
-      local tag, active = row_state(i)
+      local active = row_active(i)
       screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(tag .. r[1])
+      screen.text(r[1])
       bar(58, y - 5, 66, r[2], active and 10 or 4)
     end
     screen.level(4)
@@ -1119,10 +1117,10 @@ function redraw()
     }
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
-      local tag, active = row_state(i)
+      local active = row_active(i)
       screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(tag .. r[1])
+      screen.text(r[1])
       screen.level(active and 15 or 6)
       screen.move(54, y)
       screen.text(r[2])
@@ -1138,10 +1136,10 @@ function redraw()
     }
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
-      local tag, active = row_state(i)
+      local active = row_active(i)
       screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(tag .. r[1])
+      screen.text(r[1])
       screen.level(active and 15 or 6)
       screen.move(52, y)
       screen.text(r[2])
@@ -1158,10 +1156,10 @@ function redraw()
     }
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
-      local tag, active = row_state(i)
+      local active = row_active(i)
       screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(tag .. r[1])
+      screen.text(r[1])
       screen.level(active and 15 or 6)
       screen.move(52, y)
       screen.text(r[2])
@@ -1187,10 +1185,10 @@ function redraw()
     }
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
-      local tag, active = row_state(i)
+      local active = row_active(i)
       screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(tag .. r[1])
+      screen.text(r[1])
       screen.level(active and 15 or 6)
       screen.move(68, y)
       screen.text(r[2])
@@ -1213,10 +1211,10 @@ function redraw()
     }
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
-      local tag, active = row_state(i)
+      local active = row_active(i)
       screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(tag .. r[1])
+      screen.text(r[1])
       screen.level(active and 15 or 6)
       screen.move(68, y)
       screen.text(r[2])
