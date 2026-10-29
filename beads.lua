@@ -363,14 +363,16 @@ local function draw_envelope(x0, y0, w, h, s, level)
   local n = 96
   screen.aa(1)
   screen.line_width(1.5)
-  -- anchor at the first sample, not the bottom corner: shapes below 1/3
-  -- have zero attack and start at full height, and a bottom anchor drew
-  -- a full-height vertical spike on the left edge
-  screen.move(x0, y0 + h - envelope_point(s, 0) * h)
+  -- closed contour: attack edge up the left, the curve, release edge down
+  -- the right - so instant attack/release (shape near 0) still shows both
+  -- vertical lines instead of a bare horizontal line
+  screen.move(x0, y0 + h)
+  screen.line(x0, y0 + h - envelope_point(s, 0) * h)
   for i = 1, n do
     local t = i / n
     screen.line(x0 + t * w, y0 + h - envelope_point(s, t) * h)
   end
+  screen.line(x0 + w, y0 + h)
   screen.level(level or 10)
   screen.stroke()
   screen.aa(0)
@@ -1031,31 +1033,35 @@ function redraw()
     screen.text(MEDIA_SHORT[params:get("media")] .. "  " ..
       density_string(params:get("density")))
   elseif page == 2 then
-    -- the envelope previews SHAPE: dimmed while the first pair is active,
-    -- highlighted with the second (shape / shape amount); 20% side padding
-    draw_envelope(26, 16, 76, 22, params:get("shape"),
-      bank[2] == 2 and 12 or 3)
-    -- the active pair sits BELOW the envelope, like the row pages
-    local gview = {
-      density = { "dens", function() return density_string(params:get("density")) end },
-      size = { "size", function() return string.format("%.2f", params:get("size")) end },
-      shape = { "env", function() return string.format("%.2f", params:get("shape")) end },
-      shape_amt = { "s.amt", function() return string.format("%+.2f", params:get("shape_amt")) end },
+    -- BOTH pairs stay on screen: density/size above the envelope,
+    -- shape/shape amount below it - K3 only moves the editing highlight
+    local gtop = {
+      { "dens", function() return density_string(params:get("density")) end },
+      { "size", function() return string.format("%.2f", params:get("size")) end },
     }
-    local gdefs = PAGE_PARAMS[2]
+    local gbot = {
+      { "env", function() return string.format("%.2f", params:get("shape")) end },
+      { "s.amt", function() return string.format("%+.2f", params:get("shape_amt")) end },
+    }
+    -- 20% side padding; dim while the other pair is being edited
+    draw_envelope(26, 22, 76, 20, params:get("shape"),
+      bank[2] == 2 and 12 or 3)
     for col = 1, 2 do
-      local idx = col == 1 and (bank[2] == 1 and 1 or 3)
-          or (bank[2] == 1 and 2 or 4)
-      local id = gdefs[idx][1]
       local x = col == 1 and 0 or 64
       local vx = col == 1 and 30 or 90
-      local active = row_active(idx)
-      screen.level(active and 12 or 3)
-      screen.move(x, 48)
-      screen.text(gview[id][1])
-      screen.level(active and 15 or 4)
-      screen.move(vx, 48)
-      screen.text(gview[id][2]())
+      local t_active = bank[2] == 1
+      screen.level(t_active and 12 or 3)
+      screen.move(x, 18)
+      screen.text(gtop[col][1])
+      screen.level(t_active and 15 or 4)
+      screen.move(vx, 18)
+      screen.text(gtop[col][2]())
+      screen.level(bank[2] == 2 and 12 or 3)
+      screen.move(x, 52)
+      screen.text(gbot[col][1])
+      screen.level(bank[2] == 2 and 15 or 4)
+      screen.move(vx, 52)
+      screen.text(gbot[col][2]())
     end
     screen.level(4)
     screen.move(0, 62)
