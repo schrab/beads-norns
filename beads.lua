@@ -624,11 +624,12 @@ local function header()
 end
 
 local function bar(x, y, w, v, level)
+  screen.aa(0)
   screen.level(2)
   screen.rect(x, y, w, 5)
   screen.stroke()
   screen.level(level or 10)
-  screen.rect(x + 1, y + 1, math.max(0, (w - 2) * v), 3)
+  screen.rect(x + 1, y + 1, math.max(0, util.round((w - 2) * v)), 3)
   screen.fill()
 end
 
@@ -636,11 +637,13 @@ end
 local function bar_bi(x, y, w, v, level)
   bar(x, y, w, 0, 1)   -- empty frame
   local c = x + w / 2
+  screen.aa(0)
   screen.level(level or 10)
+  local half = util.round((w / 2 - 1) * math.abs(v))
   if v >= 0 then
-    screen.rect(c, y + 1, (w / 2 - 1) * v, 3)
+    screen.rect(c, y + 1, half, 3)
   else
-    screen.rect(c + (w / 2 - 1) * v, y + 1, -(w / 2 - 1) * v, 3)
+    screen.rect(c - half, y + 1, half, 3)
   end
   screen.fill()
   screen.level(4)
@@ -896,15 +899,16 @@ function redraw()
       end
     end
 
-    -- the loop: 1px outline (aa'd sampled path), shaded by overwrite
-    -- reserve (dims as the head approaches unrecorded tape);
-    -- in wavetable synth mode there is no tape - the whole transport
-    -- view is replaced by the synth status
+    -- the loop: 1px outline, shaded by overwrite reserve (dims as the
+    -- head approaches unrecorded tape); drawn WITHOUT anti-aliasing -
+    -- AA spread the arcs across two pixel rows and the rounded sides
+    -- read brighter than the straight lines; in wavetable synth mode
+    -- there is no tape - the transport view is replaced by synth status
     if not synth_mode then
-    screen.aa(1)
+    screen.aa(0)
     screen.line_width(1)
     screen.level(2 + math.floor(STATS.reserve * 4))
-    local segs = 48
+    local segs = 96
     local x0, y0 = loop_point(0)
     screen.move(x0, y0)
     for i = 1, segs do
@@ -912,6 +916,7 @@ function redraw()
       screen.line(x, y)
     end
     screen.stroke()
+    screen.aa(1)
 
     -- the record head is a FIXED caret (^) centered on the top of the
     -- loop; the tape moves past it. Grain/read positions are drawn as
