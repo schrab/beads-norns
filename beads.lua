@@ -606,8 +606,6 @@ local function header()
   if seed_down then tag = tag .. " SEED" end  -- button only, not modulation
   if params:get("latch") == 1 and not seed_down then tag = tag .. " LATCH" end
   if params:get("sync") == 2 then tag = tag .. " CLK" end
-  local amt = params:get("pitch_amt")
-  if amt ~= 0 then tag = tag .. " P" .. string.format("%+.1f", amt) end
   if params:get("synth") == 2 then tag = tag .. " SYN" end
   if #midi_stack > 0 then tag = tag .. " NOTE" end
   if tag ~= "" then
@@ -652,8 +650,8 @@ local function bar_bi(x, y, w, v, level)
   end
   screen.fill()
   screen.level(4)
-  screen.move(c, y - 1)
-  screen.line(c, y + 6)
+  screen.move(c, y)
+  screen.line(c, y + 4)
   screen.stroke()
 end
 
@@ -1104,10 +1102,10 @@ function redraw()
     -- RANDOM: all four attenurandomizers (the pitch amount row edits the
     -- same param as PLAY E4)
     local rows = {
-      { "time amt", params:get("time_amt") },
-      { "size amt", params:get("size_amt") },
-      { "shape amt", params:get("shape_amt") },
-      { "pitch amt", params:get("pitch_amt") },
+      { "time", params:get("time_amt") },
+      { "size", params:get("size_amt") },
+      { "shape", params:get("shape_amt") },
+      { "pitch", params:get("pitch_amt") },
     }
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
@@ -1115,11 +1113,11 @@ function redraw()
       screen.level(active and 12 or 3)
       screen.move(0, y)
       screen.text(r[1])
+      screen.level(active and 15 or 4)
+      screen.move(34, y)
+      screen.text(string.format("%+.2f", r[2]))
       bar_bi(64, y - 5, 60, r[2], active and 15 or 4)
     end
-    screen.level(4)
-    screen.move(0, 62)
-    screen.text("0=off + rnd - peaked")
   elseif page == 4 then
     local rows = {
       { "feedback", params:get("feedback") },
@@ -1135,6 +1133,9 @@ function redraw()
       screen.text(r[1])
       bar(58, y - 5, 66, r[2], active and 15 or 4)
     end
+    screen.level(4)
+    screen.move(0, 62)
+    screen.text("K3: toggle param")
   elseif page == 5 then
     -- CLOCK
     local rows = {
@@ -1156,7 +1157,7 @@ function redraw()
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("K3 tap: switch pair")
+    screen.text("K3: toggle param")
   elseif page == 6 then
     -- SETUP
     local rows = {
@@ -1245,6 +1246,9 @@ function redraw()
       screen.move(68, y)
       screen.text(r[2])
     end
+    screen.level(4)
+    screen.move(0, 62)
+    screen.text("K3: toggle param")
   end
 
   screen.update()
