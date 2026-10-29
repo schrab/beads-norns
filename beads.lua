@@ -1090,14 +1090,7 @@ function redraw()
     end
     screen.level(4)
     screen.move(0, 62)
-    -- shape's value lives in the values line (bank 2) and the envelope
-    -- curve always previews it - the footer only carries mode
-    if params:get("sync") == 2 and params:get("latch") == 1 then
-      screen.text("div " .. sync_div_label())
-    else
-      screen.text(params:get("size") < 1 / 3 and "rev" or
-        (params:get("size") > 0.99 and "delay" or ""))
-    end
+    screen.text("K3: toggle param")
   elseif page == 3 then
     -- RANDOM: all four attenurandomizers (the pitch amount row edits the
     -- same param as PLAY E4)
