@@ -53,7 +53,7 @@ end
 
 local STATS = { reserve = 1.0, dmode = 0.0 }
 
-local pages = { "PLAY", "GRAIN", "RANDOM", "MIX", "CLOCK", "SETUP", "TAPE", "MIDI", "SYNTH" }
+local pages = { "PLAY", "GRAIN", "RND", "MIX", "CLOCK", "SETUP", "TAPE", "MIDI", "SYNTH" }
 local page = 1
 local seed_down = false
 -- seed gate opened through matrix-mod modulation (e.g. a marbles t-gate
@@ -375,9 +375,9 @@ local function draw_envelope(x0, y0, w, h, s, level)
   screen.line(x0 + w, y0 + h)
   screen.level(level and (level > 6 and 3 or 2) or 2)
   screen.fill()
-  -- crisp 1 px bright contour on top of the dark fill
+  -- crisp 1 px white contour on top of the dark fill (both states)
   screen.line_width(1)
-  screen.level(level and (level > 6 and 15 or 8) or 10)
+  screen.level(15)
   screen.stroke()
   screen.aa(0)
   screen.line_width(1)
@@ -609,7 +609,7 @@ local function header()
   if #midi_stack > 0 then tag = tag .. " NOTE" end
   if tag ~= "" then
     screen.level(15)
-    screen.move(32, 8)
+    screen.move(24, 8)
     screen.text(tag)
   end
   -- square page dots anchored to the right edge so any page count fits
@@ -692,7 +692,7 @@ function init()
     if on ~= tape_playing then
       tape_playing = on
       -- keep the tp_play param in step (silent: no action ping-pong)
-      pcall(function() params:set("tp_play", on and 2 or 1, true) end)
+      pcall(function() params:set("tp_play", on and 1 or 0, true) end)
       dirty = true
     end
   end
@@ -811,7 +811,7 @@ function enc(n, d)
   elseif kind == "t01" then
     params:set(id, d > 0 and 1 or 0)
   elseif kind == "flip" then
-    if d ~= 0 then params:set(id, params:get(id) == 1 and 2 or 1) end
+    if d ~= 0 then params:set(id, params:get(id) == 1 and 0 or 1) end
   elseif kind == "subdiv" then
     sync_div_step(d > 0 and 1 or -1)
   end
@@ -833,7 +833,7 @@ function key(n, z)
     elseif page == 7 then
       -- TAPE page: K3 tap = play/stop (file browser is in the menu)
       if z == 1 then
-        params:set("tp_play", params:get("tp_play") == 1 and 2 or 1)
+        params:set("tp_play", params:get("tp_play") == 1 and 0 or 1)
         dirty = true
       end
     elseif z == 1 then
@@ -1158,7 +1158,7 @@ function redraw()
       { "play", tape_playing and "playing" or "stopped" },
     }
     for i, r in ipairs(rows) do
-      local y = row_y(i, #rows)
+      local y = row_y(i, 4)   -- 4-line spacing: the file name is line 4
       local active = row_active(i)
       screen.level(active and 12 or 3)
       screen.move(0, y)
@@ -1169,7 +1169,7 @@ function redraw()
     end
     if tape_name ~= "" then
       screen.level(4)
-      screen.move(0, 56)
+      screen.move(0, row_y(4, 4))
       local nm = tape_name
       if #nm > 25 then nm = ".." .. string.sub(nm, -23) end
       screen.text(nm)
