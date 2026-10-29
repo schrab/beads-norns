@@ -1,14 +1,25 @@
 -- beads
 --
--- Mutable Instruments Beads for norns.
--- Granular delay / looper - a port of the eurorack module's DSP
--- (Emilie Gillet, MIT) as a SuperCollider UGen + CroneEngine.
+-- mutable instruments beads
+-- for norns: the module's
+-- actual dsp as a sc ugen.
 --
+-- e1 page; e2/e3 edit the
+-- active pair (k3 toggles);
+-- e4 = page's last param.
+-- play: k2 freeze, k3 seed;
+-- k1+k3 toggles latch.
+-- tape: k3 play/stop.
+--
+-- full docs: readme.md
+
+engine.name = "Beads"
+
+-- Mutable Instruments Beads for norns.
 -- E1 page  E2/E3 = the page's ACTIVE PARAM PAIR (K3 tap toggles the banks:
 -- (1,2) <-> (3,4) on 4-param pages, (1,2) <-> (3) on 3-param pages; E4 on
 -- 4-encoder hardware = the page's LAST param)
 -- PLAY page: K2 freeze, K3 hold = seed (unchanged). TAPE page: K3 = play.
---
 -- pages:
 --   PLAY   time    pitch         pitch amount    (frozen layout)
 --   GRAIN  density size          shape / shape amount
@@ -18,26 +29,19 @@
 --   SETUP  media   channels
 --   TAPE   level   loop/once     play/stop (K3 = play; file browser in menu)
 --   MIDI   note pitch ref note   bend range
---
 -- TAPE page: play an audio file (e.g. a norns TAPE recording) into the
 -- granulator input - the buffer-feed path the hardware never had
---
 -- MIDI note pitch = the hardware PITCH CV jack: notes (last-note priority,
 -- held on release) transpose by (note - ref) semitones; PLAY E4 "pitch
 -- amount" is the CV depth, like the module's PITCH AMOUNT knob.
---
 -- amounts (RANDOM page): positive = spray the param toward random per grain
 -- (pitch: +-24 st), negative = peak near the knob value, 0 = off
---
 -- clock sync: with the latch on, the beats clock the DSP (delay tempo =
 -- bpm x subdivision, granular divider - the hardware's clocked SEED jack);
 -- with the latch off, every beat fires one seed trigger (the hardware's
 -- patched-SEED trigger behavior)
---
 -- all params (incl. freeze/latch) live in the PARAMS menu; MIDI mapping
 -- works there like any norns script.
-
-engine.name = "Beads"
 
 local beadse = include "lib/beads_engine"
 local musicutil = require "musicutil"
@@ -1018,11 +1022,20 @@ function redraw()
           end
         end
       end
-      -- live count, centered in the loop: 0 when the seed gate is closed,
-      -- saturated at the DSP's 32-grain pool
+      -- live rate + count: fixed-width fields at a fixed left anchor, so
+      -- the text never wiggles as values change ("131 Hz / 13 grains")
+      local d = params:get("density")
+      local rate_hz = density_rate(d)
+      local txt
+      if params:get("sync") == 2 or rate_hz <= 0 then
+        txt = string.format("%2d grains", #grains)
+      else
+        txt = string.format("%3d Hz / %2d grains",
+          math.floor(rate_hz + 0.5), #grains)
+      end
       screen.level(#grains > 0 and 15 or 4)
-      screen.move(bx + bw / 2, cy + 3)
-      screen.text_center(#grains .. " grains")
+      screen.move(bx + 24, cy + 3)
+      screen.text(txt)
     end
 
     -- the static record head: a ^ caret sitting on the loop
@@ -1052,11 +1065,18 @@ function redraw()
       screen.text_center("bank " .. bank_num() .. "/12")
     end
 
-    -- footer
+    -- footer: quality + rate + resolution + buffer length (the manual's
+    -- media table; buffer seconds follow the channels setting)
+    local m = params:get("media")
+    local rate = ({ 24, 24, 32, 48 })[m]
+    local res = ({ 8, 12, 12, 16 })[m]
+    local buf = buf_seconds()
+    local buf_txt = (buf == math.floor(buf)) and string.format("%d", buf)
+        or string.format("%.1f", buf)
     screen.level(4)
     screen.move(0, 62)
-    screen.text(MEDIA_SHORT[params:get("media")] .. "  " ..
-      density_string(params:get("density")))
+    screen.text(MEDIA_SHORT[m] .. " " .. rate .. "k " .. res .. "b " ..
+      buf_txt .. "s")
   elseif page == 2 then
     -- BOTH pairs stay on screen: density/size above the envelope,
     -- shape/shape amount below it - K3 only moves the editing highlight
