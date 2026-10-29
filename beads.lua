@@ -1288,12 +1288,11 @@ function redraw()
     end
     screen.level(4)
     screen.move(0, 62)
+    -- off state needs no footer: the E2 row already says "off"
     if params:get("midi_pitch") == 2 then
       local active = last_note and musicutil.note_num_to_name(last_note) or "-"
       screen.text("cv " .. string.format("%+.1f st", last_cv_sent or 0) ..
         "  " .. active)
-    else
-      screen.text("off - depth on PLAY")
     end
   else
     -- SYNTH: wavetable synth mode, bank (= FEEDBACK), gate out

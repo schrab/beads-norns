@@ -1,30 +1,33 @@
-# beads
+# beads for norns
 
 [Mutable Instruments Beads](https://pichenettes.github.io/mutable-instruments-documentation/modules/beads/)
-for [norns](https://monome.org/docs/norns/) — the module's actual DSP, wrapped
-as a SuperCollider UGen.
+for [norns](https://monome.org/docs/norns/).
 
-Not an approximation: `ugens/beads_ugen.cpp` wraps `beads::Processor` from
-[pichenettes/eurorack](https://github.com/pichenettes/eurorack) (granular
-cloud with 32 grains, the SIZE > 0.99 multitap delay/tape mode, freeze,
-reverb, the four media character modes), the same wrapping technique as
-v7b1's [mi-UGens](https://github.com/v7b1/mi-UGens) used by
-[mi-eng](https://github.com/okyeron/mi-eng). The vendored DSP under
-`ugens/eurorack-beads/` is byte-identical to upstream (verified file-by-file
-against eurorack `f4cfa76` / stmlib `e3bd7c9`); all adaptation to norns lives
-in the wrapper.
+The granular cloud, the multitap delay / tape mode, freeze, reverb and the
+four media characters all run on the module's own firmware code from
+[pichenettes/eurorack](https://github.com/pichenettes/eurorack), vendored
+under `ugens/eurorack-beads/` and wrapped as a SuperCollider UGen in the
+same way as v7b1's [mi-UGens](https://github.com/v7b1/mi-UGens) (used by
+[mi-eng](https://github.com/okyeron/mi-eng)). The norns side — rate
+conversion, the input stage, the interface — lives in the wrapper.
 
-| | |
-|---|---|
-| ![](screenshots/play.png) | ![](screenshots/grain.png) |
-| **PLAY** — live view of every grain on the loop | **GRAIN** — density / size / shape |
-| ![](screenshots/random.png) | ![](screenshots/clock.png) |
-| **RANDOM** — the attenurandomizers | **CLOCK** — sync to norns BPM |
-| ![](screenshots/mix.png) | ![](screenshots/synth.png) |
-| **MIX** — feedback / reverb / dry-wet | **SYNTH** — wavetable synth mode |
-
-(SETUP and MIDI pages omitted; all eight are in
-[`screenshots/`](screenshots/).)
+<table>
+<tr>
+<td><img src="screenshots/play.png" width="330"><br><b>PLAY</b> — live view of every grain on the loop</td>
+<td><img src="screenshots/grain.png" width="330"><br><b>GRAIN</b> — density / size / shape + envelope</td>
+<td><img src="screenshots/rnd.png" width="330"><br><b>RND</b> — the four attenurandomizers</td>
+</tr>
+<tr>
+<td><img src="screenshots/mix.png" width="330"><br><b>MIX</b> — feedback / reverb / dry-wet / gain</td>
+<td><img src="screenshots/clock.png" width="330"><br><b>CLOCK</b> — sync to norns BPM</td>
+<td><img src="screenshots/setup.png" width="330"><br><b>SETUP</b> — media / channels</td>
+</tr>
+<tr>
+<td><img src="screenshots/tape.png" width="330"><br><b>TAPE</b> — file player into the input</td>
+<td><img src="screenshots/midi.png" width="330"><br><b>MIDI</b> — pitch CV via notes</td>
+<td><img src="screenshots/synth.png" width="330"><br><b>SYNTH</b> — wavetable synth mode</td>
+</tr>
+</table>
 
 ## Layout
 
@@ -82,15 +85,17 @@ the restart (or re-selecting the script), but no rebuild.
 |---|---|
 | E1 | page |
 | E2 / E3 | the page's **active pair** (two of its parameters) |
-| K3 tap | switch the active pair: (1,2) → (2,3) → (3,1) → back |
+| K3 tap | toggle the active pair: (1,2) ↔ (3,4) on 4-param pages, (1,2) ↔ (3) on 3-param pages |
 | E4 | the page's last parameter (4-encoder hardware) |
 | K2 | freeze — PLAY page only |
-| K3 hold | seed — PLAY page only (TAPE page: K3 tap = play/stop) |
+| K3 | seed — PLAY page only (TAPE page: K3 = play/stop) |
+| K1 hold + K2 | cycle the buffer quality (media) — PLAY page |
+| K1 hold + K3 | toggle the seed latch — PLAY page |
 
-The active pair is marked E2/E3 on screen; the non-active rows are dimmed.
-This makes the whole interface work on a stock 3-encoder norns — E4 is a
-bonus, not a requirement. K1 is left untouched — it is the norns system
-menu key.
+The active rows are bright, the others dimmed; both pairs stay on screen
+(GRAIN shows one pair above and one below the envelope). K1 is the norns
+system menu key on a short press; a K1 **long hold** (≥ 0.25 s) is passed
+to the script and arms the PLAY-page combos above.
 
 Seed is also a param (**SETUP > seed (hold)**, momentary): hold K3 on it in
 the PARAMS menu, or MIDI-map it (PARAMS > EDIT) to a CC — CC high holds the
@@ -108,10 +113,11 @@ toward older; a bright stylus pixel sweeps the span at the playback ratio
 sliding away). Spawns re-roll time/size/pitch/shape through the same
 per-trigger randomization as the module's attenurandomizers, with the DSP's
 head-crossing trims and STOP policy (a grain that reaches the head dies).
-Brightness follows the grain's envelope (shape). The **live grain count**
-is printed inside the loop — the number of grains actually flying right
-now (0 whenever the seed gate is closed, saturated at the DSP's 32-grain
-pool). Two 6-notch reels sit in the end caps, phase-locked to the splice:
+Brightness follows the grain's envelope (shape). Inside the loop the
+**grain rate and live count** are printed (`131 Hz  32 grains`) — the
+number of grains actually flying right now, 0 whenever the seed gate is
+closed, saturated at the DSP's 32-grain pool. Every text element is
+anchored at a fixed position, so nothing wiggles as values change. Two 6-notch reels sit in the end caps, phase-locked to the splice:
 one rotation per loop pass, notch up when the splice passes the head, and
 everything stops on freeze. Grains only appear when the gate is open (latch
 on, or K3 held), the density deadband taps spawn a grain per press, and
@@ -119,7 +125,7 @@ media changes clear the view (the buffer resets). In delay mode (SIZE max)
 the display shows the static read position with regen echoes.
 
 Pages: **PLAY** (time, pitch, pitch amount — tape-loop view), **GRAIN**
-(density, size, shape, shape amount — grain envelope preview), **RANDOM**
+(density, size, shape, shape amount — grain envelope preview), **RND**
 (all four attenurandomizers: time/size/shape/pitch amounts, bipolar bars),
 **MIX** (feedback, reverb, dry/wet, input gain), **CLOCK** (sync to norns
 BPM, subdivision, seed latch), **SETUP** (media, channels), **TAPE** (file
@@ -201,20 +207,20 @@ the engine commands are available to other scripts and processes over OSC
 ## Fidelity notes
 
 - **Sample rates.** On hardware the codec is re-clocked per media and the
-  engines run at 24 kHz (scorched tape), 32 kHz (cold digital) and 48 kHz
-  (digital; sunny tape self-decimates 2:1 behind 48 kHz frames). norns'
-  scsynth runs at a fixed 48 kHz, so scorched/cold are resampled with the
-  same stmlib polyphase converters the firmware uses internally (2:1, and
-  3:2 as up-2/down-3), clocked in aligned superblocks (64/192 host samples)
-  so the integer ratios chain exactly. This costs ~1.5 ms of extra latency
-  on those two media only; loop lengths match the hardware exactly
-  (16 / 10.7 / 8 / 4 s).
+  engines run at 24 kHz (scorched cassette), 32 kHz (cold digital) and
+  48 kHz (bright digital; sunny tape self-decimates 2:1 behind 48 kHz
+  frames). norns' scsynth runs at a fixed 48 kHz, so scorched/cold are
+  resampled with the same stmlib polyphase converters the firmware uses
+  internally (2:1, and 3:2 as up-2/down-3), clocked in aligned superblocks
+  (64/192 host samples) so the integer ratios chain exactly. This costs
+  ~1.5 ms of extra latency on those two media only; loop lengths match the
+  hardware exactly (16 / 10.7 / 8 / 4 s stereo, doubled in mono).
 - **Input stage.** The hardware's `GainControl` stage is ported: input
   gain 0 = auto-gain (the GAIN knob fully CCW), 1–255 = the hardware
   manual law (s/255)⁴ over 1–40×, with the per-media soft clipping
-  (scorched tape always soft-clips, sunny tape dynamically). Turning the
-  gain up drives the tape engines exactly like overdriving the module's
-  inputs.
+  (scorched cassette always soft-clips, sunny tape dynamically). Turning
+  the gain up drives the tape engines exactly like overdriving the
+  module's inputs.
 - **Seed latch defaults ON** at script start (the module boots unlatched;
   unlatched + density in the deadband is silent, which reads as "broken"
   on norns). Everything else about latch/clock semantics follows the
