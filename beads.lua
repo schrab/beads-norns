@@ -8,7 +8,7 @@
 -- active pair (k3 toggles);
 -- e4 = page's last param.
 -- play: k2 freeze, k3 seed;
--- k1+k3 toggles latch.
+-- k1+k2 media, k1+k3 latch.
 -- tape: k3 play/stop.
 --
 -- full docs: readme.md
@@ -844,8 +844,14 @@ function key(n, z)
     return
   end
   if n == 2 and page == 1 and z == 1 then
-    -- freeze lives on the PLAY page only
-    params:set("freeze", params:get("freeze") == 1 and 0 or 1)
+    if k1_down then
+      -- K1 held + K2: cycle the buffer quality (media); the param action
+      -- resets the buffer like a hardware media switch
+      params:set("media", params:get("media") % 4 + 1)
+    else
+      -- freeze lives on the PLAY page only
+      params:set("freeze", params:get("freeze") == 1 and 0 or 1)
+    end
     dirty = true
     return
   end
