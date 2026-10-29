@@ -81,15 +81,21 @@ the restart (or re-selecting the script), but no rebuild.
 | input | action |
 |---|---|
 | E1 | page |
-| E2 / E3 / E4 | the page's three parameters (E4 = Fates 4th knob) |
-| K2 | freeze (toggle) |
-| K3 | seed (momentary; in the density deadband = manual grain / tap tempo) — on the TAPE page: open the file browser |
+| E2 / E3 | the page's **active pair** (two of its parameters) |
+| K3 tap | switch the active pair: (1,2) → (2,3) → (3,1) → back |
+| E4 | the page's last parameter (4-encoder hardware) |
+| K2 | freeze — PLAY page only |
+| K3 hold | seed — PLAY page only (TAPE page: K3 tap = play/stop) |
 
-K1 is left untouched — it is the norns system menu key.
+The active pair is marked E2/E3 on screen; the non-active rows are dimmed.
+This makes the whole interface work on a stock 3-encoder norns — E4 is a
+bonus, not a requirement. K1 is left untouched — it is the norns system
+menu key.
 
 Seed is also a param (**SETUP > seed (hold)**, momentary): hold K3 on it in
 the PARAMS menu, or MIDI-map it (PARAMS > EDIT) to a CC — CC high holds the
-seed gate open, CC zero closes it, exactly like the button.
+seed gate open, CC zero closes it, exactly like the button. Freeze is a
+param too.
 
 **PLAY page is a live view of the granulator** (the record head stays
 fixed — tape frame): every grain is drawn at its true position and size
@@ -113,13 +119,12 @@ media changes clear the view (the buffer resets). In delay mode (SIZE max)
 the display shows the static read position with regen echoes.
 
 Pages: **PLAY** (time, pitch, pitch amount — tape-loop view), **GRAIN**
-(density, size, shape — grain envelope preview), **RANDOM** (the
-attenurandomizers: time/size/shape amounts, bipolar bars), **MIX**
-(feedback, reverb, dry/wet), **CLOCK** (sync to norns BPM, subdivision,
-seed latch), **SETUP** (media, channels, input gain), **TAPE** (file
-player: level, loop/once, play/stop — K3 opens the file browser),
-**MIDI** (note pitch, reference note, bend range), **SYNTH** (wavetable
-synth mode, bank, gate output).
+(density, size, shape, shape amount — grain envelope preview), **RANDOM**
+(all four attenurandomizers: time/size/shape/pitch amounts, bipolar bars),
+**MIX** (feedback, reverb, dry/wet, input gain), **CLOCK** (sync to norns
+BPM, subdivision, seed latch), **SETUP** (media, channels), **TAPE** (file
+player: level, loop/once, play/stop), **MIDI** (note pitch, reference
+note, bend range), **SYNTH** (wavetable synth mode, bank, gate output).
 
 Every control steps exactly one display increment per encoder detent
 (pitch 0.1 st, input gain 1 setting, amounts 0.02, the 0–1 params 0.005).
@@ -176,15 +181,17 @@ stays live in both modes.
 
 **Tape player** (TAPE page) feeds an audio file straight into the
 granulator's input — summed with the hardware line-in, at any input gain,
-recordable into the loop like a tape deck plugged into the module. Pick a
-file with **K3** on the page, or from the menu via **PARAMS > TAPE > load
-tape file** (starts in `~/tape`, where norns TAPE recordings live); it
-loads and starts playing. **E4** play/stop, **E3** once/loop,
-**E2** level. Picking another file while playing switches live. This is
-the buffer-feed path norns' own TAPE menu doesn't offer (TAPE playback
-goes to the output mix only — the script's input is the line-in copy,
-there is no tape→script path in norns' mixer). The file isn't persisted
-in psets (norns 3.0 has no file param type); level and loop mode are.
+recordable into the loop like a tape deck plugged into the module. Load a
+file from the menu via **PARAMS > TAPE > load tape file** (the browser
+starts in `~/dust/audio` so all sample folders are reachable; TAPE
+recordings live one level up in `~/tape`) — it loads and starts playing.
+**K3** on the page toggles play/stop (also a param, so MIDI-mappable),
+**E3** once/loop, **E2** level. Loading another file while playing
+switches live. This is the buffer-feed path norns' own TAPE menu doesn't
+offer (TAPE playback goes to the output mix only — the script's input is
+the line-in copy, there is no tape→script path in norns' mixer). The file
+isn't persisted in psets (norns 3.0 has no file param type); level, loop
+and play are.
 
 All controls are norns params → psets, MIDI mapping (PARAMS > EDIT), and
 the engine commands are available to other scripts and processes over OSC

@@ -218,6 +218,14 @@ function beadse.add_params()
     options = { "once", "loop" }, default = 2,
     action = function(x) engine.buffer_loop(x - 1) end,
   }
+  -- play/stop as a real param: the TAPE page K3 and stock 3-encoder
+  -- norns (menu / MIDI map) both reach it; the script's poll syncs it
+  -- silently with the engine's actual player state
+  params:add {
+    type = "binary", id = "tp_play", name = "tape play",
+    behavior = "toggle", default = 0,
+    action = function(x) engine.buffer_play(x) end,
+  }
 
   params:add_separator("beads_midi", "MIDI")
 

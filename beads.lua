@@ -4,19 +4,20 @@
 -- Granular delay / looper - a port of the eurorack module's DSP
 -- (Emilie Gillet, MIT) as a SuperCollider UGen + CroneEngine.
 --
--- E1 page  E2/E3/E4 = the page's three parameters (no modifier layers,
--- K1 untouched - it is the system menu key)
--- K2 freeze   K3 seed
+-- E1 page  E2/E3 = the page's ACTIVE PARAM PAIR (K3 tap toggles the banks:
+-- (1,2) <-> (3,4) on 4-param pages, (1,2) <-> (3) on 3-param pages; E4 on
+-- 4-encoder hardware = the page's LAST param)
+-- PLAY page: K2 freeze, K3 hold = seed (unchanged). TAPE page: K3 = play.
 --
 -- pages:
---   PLAY   E2 time    E3 pitch         E4 pitch amount
---   GRAIN  E2 density E3 size          E4 shape
---   RANDOM E2 time amt   E3 size amt   E4 shape amt   (attenurandomizers)
---   MIX    E2 feedback   E3 reverb     E4 dry/wet
---   CLOCK  E2 sync    E3 subdivision  E4 seed latch
---   SETUP  E2 media   E3 channels      E4 input gain
---   TAPE   E2 level   E3 loop/once     E4 play/stop   (K3 file browser)
---   MIDI   E2 note pitch E3 ref note   E4 bend range
+--   PLAY   time    pitch         pitch amount    (frozen layout)
+--   GRAIN  density size          shape / shape amount
+--   RANDOM time amt   size amt   shape amt / pitch amt (all 4 amounts)
+--   MIX    feedback   reverb     dry/wet / input gain
+--   CLOCK  sync    subdivision   seed latch
+--   SETUP  media   channels
+--   TAPE   level   loop/once     play/stop (K3 = play; file browser in menu)
+--   MIDI   note pitch ref note   bend range
 --
 -- TAPE page: play an audio file (e.g. a norns TAPE recording) into the
 -- granulator input - the buffer-feed path the hardware never had
@@ -60,6 +61,12 @@ local seed_down = false
 -- values on the param object but never fires the action (it only patches
 -- number:bang, not binary:bang), so the gate is tracked separately
 local seed_mod = false
+-- K3 tap toggles the page's active param pair: bank 1 = params (1,2),
+-- bank 2 = params (3,4) — or just (3) on 3-param pages (E3 idle there).
+-- PLAY keeps K3 = seed (instant), TAPE keeps K3 = play/stop: no toggling
+-- there. Pages with fewer than 3 params cannot switch.
+local bank = { 1, 1, 1, 1, 1, 1, 1, 1, 1 }
+local enc4_seen = false
 local dirty = true
 local redrawer
 
@@ -89,8 +96,10 @@ local tape_playing = false
 
 local function load_tape_file()
   -- fileselect reroutes the screen keys (or the menu handlers, when opened
-  -- from PARAMS) while it is open, and restores them after
-  fileselect.enter(_path.tape, function(file)
+  -- from PARAMS) while it is open, and restores them after. Start in the
+  -- shared samples folder - recordings live one level up in ~/tape and
+  -- every sample folder is reachable from here.
+  fileselect.enter(_path.audio, function(file)
     if file then
       tape_file = file
       tape_name = string.match(file, "[^/]+$") or file
@@ -166,8 +175,57 @@ local function midi_connect_all()
   end
 end
 
+-- per-page parameter stack (index 1..n). E2/E3 edit the ACTIVE PAIR window
+-- over indexes 1..3 (K3 tap cycles); E4 (4-encoder hardware) edits the LAST
+-- index. PLAY is frozen (time/pitch/pitch_amt exactly as before).
+-- kind: d/opt = params:delta; t2 = option set d>0?2:1; t01 = binary
+-- set d>0?1:0; flip = binary toggle on any detent; subdiv = clock stepper
+local PAGE_PARAMS = {
+  { { "time", "d" },       { "pitch", "d" },      { "pitch_amt", "d" } },
+  { { "density", "d" },    { "size", "d" },       { "shape", "d" },      { "shape_amt", "d" } },
+  { { "time_amt", "d" },   { "size_amt", "d" },   { "shape_amt", "d" },  { "pitch_amt", "d" } },
+  { { "feedback", "d" },   { "rvb", "d" },        { "drywet", "d" },     { "gain", "d" } },
+  { { "sync", "t2" },      { "subdiv", "subdiv" },{ "latch", "t01" } },
+  { { "media", "opt" },    { "mono", "opt" } },
+  { { "tp_level", "d" },   { "tp_loop", "opt" },  { "tp_play", "flip" } },
+  { { "midi_pitch", "t2" },{ "midi_ref", "d" },   { "midi_bend", "d" } },
+  { { "synth", "t2" },     { "feedback", "d" },   { "gate", "t2" } },
+}
+
 local W, H = 128, 64
 local MEDIA_SHORT = { "scorched", "sunny", "cold", "digital" }
+
+-- which row each encoder edits on the current page: returns param id + kind
+-- (nil when the encoder has no param in this bank, e.g. E3 on a 3-param
+-- page's second bank)
+local function enc_target(n)
+  local defs = PAGE_PARAMS[page]
+  local idx
+  if n == 4 then
+    idx = #defs
+  elseif n == 2 then
+    idx = bank[page] == 1 and 1 or 3
+  else
+    idx = bank[page] == 1 and 2 or 4
+  end
+  if idx > #defs then return nil, nil end
+  return defs[idx][1], defs[idx][2]
+end
+
+-- row marker + active state for the redraw (i = param stack index)
+local function row_state(i)
+  local w1 = bank[page] == 1 and 1 or 3
+  local w2 = bank[page] == 1 and 2 or (#PAGE_PARAMS[page] >= 4 and 4 or nil)
+  local active = i == w1 or i == w2
+  local tag = i == w1 and "E2 " or (w2 and i == w2 and "E3 " or "")
+  if tag == "" and enc4_seen and i == #PAGE_PARAMS[page] then tag = "E4 " end
+  return tag, active
+end
+
+-- row baseline: 4-row pages tighten the leading so the footer still fits
+local function row_y(i, n_rows)
+  return n_rows > 3 and (20 + (i - 1) * 11) or (22 + (i - 1) * 12)
+end
 
 -- wavetable bank shown on the SYNTH page/PLAY view: the DSP quantizes
 -- FEEDBACK into 12 banks (Synth kNumBanks, hysteresis 0.048)
@@ -627,6 +685,8 @@ function init()
     local on = v > 0.5
     if on ~= tape_playing then
       tape_playing = on
+      -- keep the tp_play param in step (silent: no action ping-pong)
+      pcall(function() params:set("tp_play", on and 2 or 1, true) end)
       dirty = true
     end
   end
@@ -735,80 +795,48 @@ function enc(n, d)
     dirty = true
     return
   end
-  if page == 5 then
-    -- CLOCK: E2 sync on/off, E3 subdivision, E4 seed latch
-    if n == 2 then
-      params:set("sync", d > 0 and 2 or 1)
-    elseif n == 3 then
-      sync_div_step(d > 0 and 1 or -1)
-    elseif d > 0 then
-      params:set("latch", 1)
-    else
-      params:set("latch", 0)
-    end
-    dirty = true
-    return
+  if n == 4 then enc4_seen = true end
+  local id, kind = enc_target(n)
+  if id == nil then return end
+  if kind == "d" or kind == "opt" then
+    params:delta(id, d)
+  elseif kind == "t2" then
+    params:set(id, d > 0 and 2 or 1)
+  elseif kind == "t01" then
+    params:set(id, d > 0 and 1 or 0)
+  elseif kind == "flip" then
+    if d ~= 0 then params:set(id, params:get(id) == 1 and 2 or 1) end
+  elseif kind == "subdiv" then
+    sync_div_step(d > 0 and 1 or -1)
   end
-  if page == 7 then
-    -- TAPE: E2 level, E3 loop/once, E4 play/stop
-    if n == 2 then
-      params:delta("tp_level", d)
-    elseif n == 3 then
-      params:set("tp_loop", util.clamp(params:get("tp_loop") + d, 1, 2))
-    elseif n == 4 and d ~= 0 then
-      tape_playing = not tape_playing
-      engine.buffer_play(tape_playing and 1 or 0)
-    end
-    dirty = true
-    return
-  end
-  if page == 8 then
-    -- MIDI: E2 note pitch, E3 reference note, E4 bend range
-    if n == 2 then
-      params:set("midi_pitch", d > 0 and 2 or 1)
-    elseif n == 3 then
-      params:delta("midi_ref", d)
-    elseif n == 4 then
-      params:delta("midi_bend", d)
-    end
-    dirty = true
-    return
-  end
-  if page == 9 then
-    -- SYNTH: E2 wavetable synth mode, E3 bank (= FEEDBACK), E4 gate out
-    if n == 2 then
-      params:set("synth", d > 0 and 2 or 1)
-    elseif n == 3 then
-      params:delta("feedback", d)
-    elseif n == 4 then
-      params:set("gate", d > 0 and 2 or 1)
-    end
-    dirty = true
-    return
-  end
-  local e2 = { "time", "density", "time_amt", "feedback", nil, "media" }
-  local e3 = { "pitch", "size", "size_amt", "rvb", nil, "mono" }
-  local e4 = { "pitch_amt", "shape", "shape_amt", "drywet", nil, "gain" }
-  local t = n == 2 and e2[page] or (n == 3 and e3[page] or e4[page])
-  if t then params:delta(t, d) end
   dirty = true
 end
 
 function key(n, z)
-  if n == 3 and z == 1 and page == 7 then
-    -- TAPE page: K3 opens the file browser. A picked file loads and
-    -- starts feeding the granulator input; picking another while
-    -- playing switches live.
-    load_tape_file()
-    return
-  end
-  if n == 2 and z == 1 then
+  if n == 2 and page == 1 and z == 1 then
+    -- freeze lives on the PLAY page only
     params:set("freeze", params:get("freeze") == 1 and 0 or 1)
     dirty = true
-  elseif n == 3 then
-    -- routed through the param so the menu state and MIDI mapping agree
-    params:set("seed_btn", z)
-    dirty = true
+    return
+  end
+  if n == 3 then
+    if page == 1 then
+      -- seed lives on the PLAY page only (instant, as before)
+      params:set("seed_btn", z)
+      dirty = true
+    elseif page == 7 then
+      -- TAPE page: K3 tap = play/stop (file browser is in the menu)
+      if z == 1 then
+        params:set("tp_play", params:get("tp_play") == 1 and 2 or 1)
+        dirty = true
+      end
+    elseif z == 1 then
+      -- quick tap = toggle this page's active pair bank
+      if #PAGE_PARAMS[page] >= 3 then
+        bank[page] = bank[page] == 1 and 2 or 1
+        dirty = true
+      end
+    end
   end
 end
 
@@ -1004,18 +1032,28 @@ function redraw()
       density_string(params:get("density")))
   elseif page == 2 then
     draw_envelope(4, 22, 119, 26, params:get("shape"))
-    screen.level(4)
-    screen.move(0, 18)
-    screen.text("dens")
-    screen.level(15)
-    screen.move(30, 18)
-    screen.text(density_string(params:get("density")))
-    screen.level(4)
-    screen.move(64, 18)
-    screen.text("size")
-    screen.level(15)
-    screen.move(90, 18)
-    screen.text(string.format("%.2f", params:get("size")))
+    -- the values line shows the ACTIVE PAIR (K3 cycles density/size/shape;
+    -- E4 = shape amount, whose value lives on the RANDOM page)
+    local gview = {
+      density = { "dens", function() return density_string(params:get("density")) end },
+      size = { "size", function() return string.format("%.2f", params:get("size")) end },
+      shape = { "env", function() return string.format("%.2f", params:get("shape")) end },
+      shape_amt = { "s.amt", function() return string.format("%+.2f", params:get("shape_amt")) end },
+    }
+    local gdefs = PAGE_PARAMS[2]
+    for col = 1, 2 do
+      local idx = col == 1 and (bank[2] == 1 and 1 or 3)
+          or (bank[2] == 1 and 2 or 4)
+      local id = gdefs[idx][1]
+      local x = col == 1 and 0 or 64
+      local vx = col == 1 and 30 or 90
+      screen.level(4)
+      screen.move(x, 18)
+      screen.text(gview[id][1])
+      screen.level(15)
+      screen.move(vx, 18)
+      screen.text(gview[id][2]())
+    end
     screen.level(4)
     screen.move(0, 62)
     if params:get("sync") == 2 and params:get("latch") == 1 then
@@ -1028,34 +1066,39 @@ function redraw()
           (params:get("size") > 0.99 and "  delay" or "")))
     end
   elseif page == 3 then
-    -- RANDOM: the four attenurandomizers (pitch amt lives on PLAY E4)
+    -- RANDOM: all four attenurandomizers (the pitch amount row edits the
+    -- same param as PLAY E4)
     local rows = {
-      { "E2 time amt", params:get("time_amt") },
-      { "E3 size amt", params:get("size_amt") },
-      { "E4 shape amt", params:get("shape_amt") },
+      { "time amt", params:get("time_amt") },
+      { "size amt", params:get("size_amt") },
+      { "shape amt", params:get("shape_amt") },
+      { "pitch amt", params:get("pitch_amt") },
     }
     for i, r in ipairs(rows) do
-      local y = 22 + (i - 1) * 12
-      screen.level(4)
+      local y = row_y(i, #rows)
+      local tag, active = row_state(i)
+      screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(r[1])
-      bar_bi(64, y - 5, 60, r[2], 10)
+      screen.text(tag .. r[1])
+      bar_bi(64, y - 5, 60, r[2], active and 10 or 4)
     end
     screen.level(4)
     screen.move(0, 62)
     screen.text("0=off + rnd - peaked")
   elseif page == 4 then
     local rows = {
-      { "E2 feedback", params:get("feedback") },
-      { "E3 reverb", params:get("rvb") },
-      { "E4 dry/wet", params:get("drywet") },
+      { "feedback", params:get("feedback") },
+      { "reverb", params:get("rvb") },
+      { "dry/wet", params:get("drywet") },
+      { "in gain", params:get("gain") },
     }
     for i, r in ipairs(rows) do
-      local y = 22 + (i - 1) * 12
-      screen.level(4)
+      local y = row_y(i, #rows)
+      local tag, active = row_state(i)
+      screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(r[1])
-      bar(58, y - 5, 66, r[2], 10)
+      screen.text(tag .. r[1])
+      bar(58, y - 5, 66, r[2], active and 10 or 4)
     end
     screen.level(4)
     screen.move(0, 62)
@@ -1068,56 +1111,58 @@ function redraw()
   elseif page == 5 then
     -- CLOCK
     local rows = {
-      { "E2 sync", params:get("sync") == 2
+      { "sync", params:get("sync") == 2
           and (string.format("%d", math.floor(safe_bpm() + 0.5)) .. " bpm")
           or "off" },
-      { "E3 subdiv", sync_div_label() },
-      { "E4 latch", params:get("latch") == 1 and "on (free run)" or "off (trig)" },
+      { "subdiv", sync_div_label() },
+      { "latch", params:get("latch") == 1 and "on (free run)" or "off (trig)" },
     }
     for i, r in ipairs(rows) do
-      local y = 22 + (i - 1) * 12
-      screen.level(4)
+      local y = row_y(i, #rows)
+      local tag, active = row_state(i)
+      screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(r[1])
-      screen.level(15)
+      screen.text(tag .. r[1])
+      screen.level(active and 15 or 6)
       screen.move(54, y)
       screen.text(r[2])
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("latch off: beat = seed")
+    screen.text("K3 tap: switch pair")
   elseif page == 6 then
     -- SETUP
     local rows = {
-      { "E2 media", beadse.media_name(params:get("media")) },
-      { "E3 chans", params:get("mono") == 2 and "mono" or "stereo" },
-      { "E4 in gain", string.format("%.2fx", params:get("gain")) },
+      { "media", beadse.media_name(params:get("media")) },
+      { "chans", params:get("mono") == 2 and "mono" or "stereo" },
     }
     for i, r in ipairs(rows) do
-      local y = 22 + (i - 1) * 12
-      screen.level(4)
+      local y = row_y(i, #rows)
+      local tag, active = row_state(i)
+      screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(r[1])
-      screen.level(15)
+      screen.text(tag .. r[1])
+      screen.level(active and 15 or 6)
       screen.move(52, y)
       screen.text(r[2])
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("K2 freeze  K3 seed")
+    screen.text("K3 tap: switch pair")
   elseif page == 7 then
     -- TAPE: file player feeding the granulator input
     local rows = {
-      { "E2 level", string.format("%.2fx", params:get("tp_level")) },
-      { "E3 loop", params:get("tp_loop") == 2 and "loop" or "once" },
-      { "E4 play", tape_playing and "playing" or "stopped" },
+      { "level", string.format("%.2fx", params:get("tp_level")) },
+      { "loop", params:get("tp_loop") == 2 and "loop" or "once" },
+      { "play", tape_playing and "playing" or "stopped" },
     }
     for i, r in ipairs(rows) do
-      local y = 22 + (i - 1) * 12
-      screen.level(4)
+      local y = row_y(i, #rows)
+      local tag, active = row_state(i)
+      screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(r[1])
-      screen.level(15)
+      screen.text(tag .. r[1])
+      screen.level(active and 15 or 6)
       screen.move(52, y)
       screen.text(r[2])
     end
@@ -1130,22 +1175,23 @@ function redraw()
     end
     screen.level(4)
     screen.move(0, 62)
-    screen.text("K3 file  E4 play/stop")
+    screen.text("K3 play  file: menu")
   elseif page == 8 then
     -- MIDI: notes stand in for the hardware PITCH CV jack
     local ref = params:get("midi_ref")
     local rows = {
-      { "E2 note pitch", params:get("midi_pitch") == 2 and "on" or "off" },
-      { "E3 ref note", musicutil.note_num_to_name(ref) },
-      { "E4 bend range", params:get("midi_bend") == 0 and "off"
+      { "note pitch", params:get("midi_pitch") == 2 and "on" or "off" },
+      { "ref note", musicutil.note_num_to_name(ref) },
+      { "bend range", params:get("midi_bend") == 0 and "off"
           or (params:get("midi_bend") .. " st") },
     }
     for i, r in ipairs(rows) do
-      local y = 22 + (i - 1) * 12
-      screen.level(4)
+      local y = row_y(i, #rows)
+      local tag, active = row_state(i)
+      screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(r[1])
-      screen.level(15)
+      screen.text(tag .. r[1])
+      screen.level(active and 15 or 6)
       screen.move(68, y)
       screen.text(r[2])
     end
@@ -1159,18 +1205,19 @@ function redraw()
       screen.text("off - depth on PLAY")
     end
   else
-    -- SYNTH: E2 wavetable synth mode, E3 bank (= FEEDBACK), E4 gate out
+    -- SYNTH: wavetable synth mode, bank (= FEEDBACK), gate out
     local rows = {
-      { "E2 synth", params:get("synth") == 2 and "on" or "off" },
-      { "E3 bank", bank_num() .. "/12" },
-      { "E4 gate out", params:get("gate") == 2 and "on" or "off" },
+      { "synth", params:get("synth") == 2 and "on" or "off" },
+      { "bank", bank_num() .. "/12" },
+      { "gate out", params:get("gate") == 2 and "on" or "off" },
     }
     for i, r in ipairs(rows) do
-      local y = 22 + (i - 1) * 12
-      screen.level(4)
+      local y = row_y(i, #rows)
+      local tag, active = row_state(i)
+      screen.level(active and 4 or 2)
       screen.move(0, y)
-      screen.text(r[1])
-      screen.level(15)
+      screen.text(tag .. r[1])
+      screen.level(active and 15 or 6)
       screen.move(68, y)
       screen.text(r[2])
     end
