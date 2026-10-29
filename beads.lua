@@ -1118,6 +1118,9 @@ function redraw()
       screen.text(string.format("%+.2f", r[2]))
       bar_bi(64, y - 5, 60, r[2], active and 15 or 4)
     end
+    screen.level(4)
+    screen.move(0, 62)
+    screen.text("K3: toggle param")
   elseif page == 4 then
     local rows = {
       { "feedback", params:get("feedback") },
