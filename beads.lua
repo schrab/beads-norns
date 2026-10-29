@@ -67,6 +67,9 @@ local seed_mod = false
 -- there. Pages with fewer than 3 params cannot switch.
 local bank = { 1, 1, 1, 1, 1, 1, 1, 1, 1 }
 local enc4_seen = false
+-- norns forwards K1 to the script only on holds >= 0.25s (a short press
+-- opens the system menu); the held state arms the PLAY-page latch toggle
+local k1_down = false
 local dirty = true
 local redrawer
 
@@ -601,7 +604,7 @@ local function header()
   if STATS.dmode > 0.5 then tag = tag .. " DELAY" end
   if tape_playing then tag = tag .. " TAPE" end
   if seed_down then tag = tag .. " SEED" end  -- button only, not modulation
-  if params:get("latch") == 1 then tag = tag .. " LATCH" end
+  if params:get("latch") == 1 and not seed_down then tag = tag .. " LATCH" end
   if params:get("sync") == 2 then tag = tag .. " CLK" end
   local amt = params:get("pitch_amt")
   if amt ~= 0 then tag = tag .. " P" .. string.format("%+.1f", amt) end
@@ -824,6 +827,11 @@ function enc(n, d)
 end
 
 function key(n, z)
+  if n == 1 then
+    k1_down = z == 1
+    dirty = true
+    return
+  end
   if n == 2 and page == 1 and z == 1 then
     -- freeze lives on the PLAY page only
     params:set("freeze", params:get("freeze") == 1 and 0 or 1)
@@ -832,9 +840,17 @@ function key(n, z)
   end
   if n == 3 then
     if page == 1 then
-      -- seed lives on the PLAY page only (instant, as before)
-      params:set("seed_btn", z)
-      dirty = true
+      if k1_down then
+        -- K1 held + K3: toggle the seed latch (no seed while armed)
+        if z == 1 then
+          params:set("latch", params:get("latch") == 1 and 0 or 1)
+          dirty = true
+        end
+      else
+        -- seed lives on the PLAY page only (instant, as before)
+        params:set("seed_btn", z)
+        dirty = true
+      end
     elseif page == 7 then
       -- TAPE page: K3 tap = play/stop (file browser is in the menu)
       if z == 1 then
