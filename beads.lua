@@ -74,6 +74,7 @@ local enc4_seen = false
 -- norns forwards K1 to the script only on holds >= 0.25s (a short press
 -- opens the system menu); the held state arms the PLAY-page latch toggle
 local k1_down = false
+local dbg_shot_page = nil
 local dirty = true
 local redrawer
 
@@ -368,21 +369,25 @@ end
 
 local function draw_envelope(x0, y0, w, h, s, level)
   local n = 96
-  screen.aa(1)
   -- closed contour: attack edge up the left, the curve, release edge down
   -- the right - so instant attack/release (shape near 0) still shows both
-  -- vertical lines instead of a bare horizontal line. Cairo keeps the path
-  -- after fill(), so the same contour is filled dark then stroked.
-  screen.move(x0, y0 + h)
-  screen.line(x0, y0 + h - envelope_point(s, 0) * h)
-  for i = 1, n do
-    local t = i / n
-    screen.line(x0 + t * w, y0 + h - envelope_point(s, t) * h)
+  -- vertical lines instead of a bare horizontal line.
+  -- cairo_fill CLEARS the path (the preserve variant is not exposed to
+  -- lua), so the contour is built twice: fill it, rebuild, stroke it.
+  local path = function()
+    screen.move(x0, y0 + h)
+    screen.line(x0, y0 + h - envelope_point(s, 0) * h)
+    for i = 1, n do
+      local t = i / n
+      screen.line(x0 + t * w, y0 + h - envelope_point(s, t) * h)
+    end
+    screen.line(x0 + w, y0 + h)
   end
-  screen.line(x0 + w, y0 + h)
+  screen.aa(1)
+  path()
   screen.level(level and (level > 6 and 3 or 2) or 2)
   screen.fill()
-  -- crisp 1 px white contour on top of the dark fill (both states)
+  path()
   screen.line_width(1)
   screen.level(15)
   screen.stroke()
@@ -789,13 +794,33 @@ function init()
       grain_sim_tick(dt, buf_s, frozen)
       -- PLAY page is live: grains spawn, drift and die continuously
       if page == 1 then dirty = true end
-      -- debug helper: touch /tmp/dbgshot -> one screenshot to dust/data
-      if ticks % 15 == 0 then
-        local have = false
-        pcall(function() have = util.file_exists("/tmp/dbgshot") end)
-        if have then
-          pcall(function() os.remove("/tmp/dbgshot") end)
+      -- debug helper: write a page number into /tmp/dbgshot -> switch to
+      -- that page, redraw, and export one frame to dust/data
+      if dbg_shot_page then
+        if ticks % 2 == 0 then   -- one redraw pass happened
           pcall(function() screen.export_screenshot("dbg") end)
+          dbg_shot_page = nil
+          os.remove("/tmp/dbgpage")
+          dirty = true
+        end
+      elseif ticks % 15 == 0 then
+        local have, n = false, nil
+        pcall(function()
+          have = util.file_exists("/tmp/dbgshot")
+          if have then
+            local f = io.open("/tmp/dbgshot", "r")
+            if f then n = tonumber(f:read("*l") or "1") or 1; f:close() end
+          end
+        end)
+        if have then
+          os.remove("/tmp/dbgshot")
+          if n and n >= 1 and n <= #pages and page ~= n then
+            page = n
+            dbg_shot_page = n
+            dirty = true
+          else
+            pcall(function() screen.export_screenshot("dbg") end)
+          end
         end
       end
       if dirty then
