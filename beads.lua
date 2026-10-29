@@ -592,7 +592,7 @@ local function header()
   if params:get("freeze") == 1 then tag = tag .. " FRZ" end
   if STATS.dmode > 0.5 then tag = tag .. " DELAY" end
   if tape_playing then tag = tag .. " TAPE" end
-  if seed_down or seed_mod then tag = tag .. " SEED" end
+  if seed_down then tag = tag .. " SEED" end  -- button only, not modulation
   if params:get("latch") == 1 then tag = tag .. " LATCH" end
   if params:get("sync") == 2 then tag = tag .. " CLK" end
   local amt = params:get("pitch_amt")
@@ -1054,14 +1054,13 @@ function redraw()
     end
     screen.level(4)
     screen.move(0, 62)
+    -- shape's value lives in the values line (bank 2) and the envelope
+    -- curve always previews it - the footer only carries mode
     if params:get("sync") == 2 and params:get("latch") == 1 then
-      -- clocked: density IS the subdivision (E2 edits it here too)
-      screen.text("env " .. string.format("%.2f", params:get("shape")) ..
-        "  div " .. sync_div_label())
+      screen.text("div " .. sync_div_label())
     else
-      screen.text("env " .. string.format("%.2f", params:get("shape")) ..
-        (params:get("size") < 1 / 3 and "  rev" or
-          (params:get("size") > 0.99 and "  delay" or "")))
+      screen.text(params:get("size") < 1 / 3 and "rev" or
+        (params:get("size") > 0.99 and "delay" or ""))
     end
   elseif page == 3 then
     -- RANDOM: all four attenurandomizers (the pitch amount row edits the
@@ -1075,10 +1074,10 @@ function redraw()
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
       local active = row_active(i)
-      screen.level(active and 4 or 2)
+      screen.level(active and 12 or 3)
       screen.move(0, y)
       screen.text(r[1])
-      bar_bi(64, y - 5, 60, r[2], active and 10 or 4)
+      bar_bi(64, y - 5, 60, r[2], active and 15 or 4)
     end
     screen.level(4)
     screen.move(0, 62)
@@ -1093,18 +1092,10 @@ function redraw()
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
       local active = row_active(i)
-      screen.level(active and 4 or 2)
+      screen.level(active and 12 or 3)
       screen.move(0, y)
       screen.text(r[1])
-      bar(58, y - 5, 66, r[2], active and 10 or 4)
-    end
-    screen.level(4)
-    screen.move(0, 62)
-    if params:get("sync") == 2 then
-      screen.text(string.format("%d", math.floor(safe_bpm() + 0.5)) ..
-        " bpm x " .. sync_div_label())
-    else
-      screen.text("clock: CLOCK page")
+      bar(58, y - 5, 66, r[2], active and 15 or 4)
     end
   elseif page == 5 then
     -- CLOCK
@@ -1118,10 +1109,10 @@ function redraw()
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
       local active = row_active(i)
-      screen.level(active and 4 or 2)
+      screen.level(active and 12 or 3)
       screen.move(0, y)
       screen.text(r[1])
-      screen.level(active and 15 or 6)
+      screen.level(active and 15 or 4)
       screen.move(54, y)
       screen.text(r[2])
     end
@@ -1137,16 +1128,13 @@ function redraw()
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
       local active = row_active(i)
-      screen.level(active and 4 or 2)
+      screen.level(active and 12 or 3)
       screen.move(0, y)
       screen.text(r[1])
-      screen.level(active and 15 or 6)
+      screen.level(active and 15 or 4)
       screen.move(52, y)
       screen.text(r[2])
     end
-    screen.level(4)
-    screen.move(0, 62)
-    screen.text("K3 tap: switch pair")
   elseif page == 7 then
     -- TAPE: file player feeding the granulator input
     local rows = {
@@ -1157,10 +1145,10 @@ function redraw()
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
       local active = row_active(i)
-      screen.level(active and 4 or 2)
+      screen.level(active and 12 or 3)
       screen.move(0, y)
       screen.text(r[1])
-      screen.level(active and 15 or 6)
+      screen.level(active and 15 or 4)
       screen.move(52, y)
       screen.text(r[2])
     end
@@ -1186,10 +1174,10 @@ function redraw()
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
       local active = row_active(i)
-      screen.level(active and 4 or 2)
+      screen.level(active and 12 or 3)
       screen.move(0, y)
       screen.text(r[1])
-      screen.level(active and 15 or 6)
+      screen.level(active and 15 or 4)
       screen.move(68, y)
       screen.text(r[2])
     end
@@ -1212,16 +1200,13 @@ function redraw()
     for i, r in ipairs(rows) do
       local y = row_y(i, #rows)
       local active = row_active(i)
-      screen.level(active and 4 or 2)
+      screen.level(active and 12 or 3)
       screen.move(0, y)
       screen.text(r[1])
-      screen.level(active and 15 or 6)
+      screen.level(active and 15 or 4)
       screen.move(68, y)
       screen.text(r[2])
     end
-    screen.level(4)
-    screen.move(0, 62)
-    screen.text("bank = FEEDBACK knob")
   end
 
   screen.update()
