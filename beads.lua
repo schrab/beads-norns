@@ -193,7 +193,7 @@ local PAGE_PARAMS = {
 }
 
 local W, H = 128, 64
-local MEDIA_SHORT = { "scorched", "sunny", "cold", "digital" }
+local MEDIA_SHORT = { "scorched cassette", "sunny tape", "cold digital", "bright digital" }
 
 -- which row each encoder edits on the current page: returns param id + kind
 -- (nil when the encoder has no param in this bank, e.g. E3 on a 3-param
@@ -359,17 +359,19 @@ local function envelope_point(s, t)
   end
 end
 
-local function draw_envelope(x0, y0, w, h, s)
-  local n = 48
+local function draw_envelope(x0, y0, w, h, s, level)
+  local n = 96
   screen.aa(1)
   screen.line_width(1.5)
-  screen.move(x0, y0 + h)
-  for i = 0, n do
+  -- anchor at the first sample, not the bottom corner: shapes below 1/3
+  -- have zero attack and start at full height, and a bottom anchor drew
+  -- a full-height vertical spike on the left edge
+  screen.move(x0, y0 + h - envelope_point(s, 0) * h)
+  for i = 1, n do
     local t = i / n
-    local v = envelope_point(s, t)
-    screen.line(x0 + t * w, y0 + h - v * h)
+    screen.line(x0 + t * w, y0 + h - envelope_point(s, t) * h)
   end
-  screen.level(10)
+  screen.level(level or 10)
   screen.stroke()
   screen.aa(0)
   screen.line_width(1)
@@ -1029,9 +1031,11 @@ function redraw()
     screen.text(MEDIA_SHORT[params:get("media")] .. "  " ..
       density_string(params:get("density")))
   elseif page == 2 then
-    draw_envelope(4, 22, 119, 26, params:get("shape"))
-    -- the values line shows the ACTIVE PAIR (K3 cycles density/size/shape;
-    -- E4 = shape amount, whose value lives on the RANDOM page)
+    -- the envelope previews SHAPE: dimmed while the first pair is active,
+    -- highlighted with the second (shape / shape amount); 20% side padding
+    draw_envelope(26, 16, 76, 22, params:get("shape"),
+      bank[2] == 2 and 12 or 3)
+    -- the active pair sits BELOW the envelope, like the row pages
     local gview = {
       density = { "dens", function() return density_string(params:get("density")) end },
       size = { "size", function() return string.format("%.2f", params:get("size")) end },
@@ -1045,11 +1049,12 @@ function redraw()
       local id = gdefs[idx][1]
       local x = col == 1 and 0 or 64
       local vx = col == 1 and 30 or 90
-      screen.level(4)
-      screen.move(x, 18)
+      local active = row_active(idx)
+      screen.level(active and 12 or 3)
+      screen.move(x, 48)
       screen.text(gview[id][1])
-      screen.level(15)
-      screen.move(vx, 18)
+      screen.level(active and 15 or 4)
+      screen.move(vx, 48)
       screen.text(gview[id][2]())
     end
     screen.level(4)

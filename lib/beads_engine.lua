@@ -9,7 +9,7 @@ local beadse = {}
 
 local musicutil = require "musicutil"
 
-local MEDIA = { "scorched tape", "sunny tape", "cold digital", "digital" }
+local MEDIA = { "scorched cassette", "sunny tape", "cold digital", "bright digital" }
 
 -- controlspec args: (min, max, warp, step, default, units, quantum).
 -- step = snap grid for stored values; quantum = per-encoder-detent
